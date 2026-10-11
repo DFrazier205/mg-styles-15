@@ -1,0 +1,12 @@
+{
+  "bpm": 120,
+  "bulbDrop": 0.5,
+  "titles": [["IDEA", 0.5], ["BUILD", 2.0], ["LIVE", 6.5]],
+  "highfives": [1.5, 3.0, 4.5, 6.0, 7.0],
+  "morphs": {"sketch": 2.0, "wire": 3.5, "site": 5.0},
+  "split": {"start": 6.5, "app": 6.6, "chat": 6.8},
+  "charsIn": 0.15,
+  "charsOut": 7.6,
+  "line": {"start": 7.7, "stagger": 0.1},
+  "bulbOn": 1.5
+}
