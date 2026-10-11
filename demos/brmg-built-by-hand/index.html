@@ -1,0 +1,366 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Built By Hand — BRMG line-boil film</title>
+<style>
+  @font-face { font-family: 'BRMGBagel'; src: url('/assets/fonts/latin/bagelfatone/BagelFatOne-Regular.ttf') format('truetype'); font-display: block; }
+  @font-face { font-family: 'BRMGAnton'; src: url('/assets/fonts/latin/anton/Anton-Regular.ttf') format('truetype'); font-display: block; }
+  @font-face { font-family: 'BRMGPoppins'; src: url('/assets/fonts/latin/poppins/Poppins-ExtraBold.ttf') format('truetype'); font-weight: 800; font-display: block; }
+  html, body { margin: 0; padding: 0; background: #F2F1ED; overflow: hidden; }
+  canvas { display: block; width: 1920px; height: 1080px; }
+</style>
+</head>
+<body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script type="module">
+/*  BRMG — "Built By Hand": hand-drawn line-boil film. Pure function of t: renderAt(t) draws the frame.
+    Picture and sound both read cues.json.  Line boil = every stroke is re-wobbled 12x per second (3 cycling phases). */
+const W = 1920, H = 1080;
+const C = { paper: '#F2F1ED', char: '#3D3935', red: '#DB1F1F' };
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+let cues = null, PH = 0;
+
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const eo3 = (x) => 1 - Math.pow(1 - clamp(x), 3);
+const ei3 = (x) => Math.pow(clamp(x), 3);
+const spring = (dt) => (dt <= 0 ? 0 : 1 - Math.exp(-9 * dt) * Math.cos(15 * dt));
+function hash(a, b = 0, c = 0) {
+  let h = (Math.imul(a | 0, 374761393) + Math.imul(b | 0, 668265263) + Math.imul(c | 0, 1274126177)) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1103515245); h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+function mulberry(a) { return () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+// smooth value-noise wobble along a stroke, re-rolled by boil phase
+function wob(seed, i, ph) {
+  const k = i / 5, i0 = Math.floor(k), f = k - i0, s = f * f * (3 - 2 * f);
+  const a = hash(seed, i0, ph), b = hash(seed, i0 + 1, ph);
+  return a + (b - a) * s - 0.5;
+}
+
+/* ---------- geometry ---------- */
+function resample(pts, step = 7) {
+  const out = [pts[0].slice()]; let acc = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const [x0, y0] = pts[i - 1], [x1, y1] = pts[i];
+    const d = Math.hypot(x1 - x0, y1 - y0); if (d === 0) continue;
+    let pos = step - acc;
+    while (pos <= d) { const f = pos / d; out.push([x0 + (x1 - x0) * f, y0 + (y1 - y0) * f]); pos += step; }
+    acc = d - (pos - step);
+  }
+  const last = pts[pts.length - 1], ol = out[out.length - 1];
+  if (Math.hypot(last[0] - ol[0], last[1] - ol[1]) > 0.5) out.push(last.slice());
+  return out;
+}
+const lineP = (x1, y1, x2, y2) => [[x1, y1], [x2, y2]];
+function arc(cx, cy, rx, ry, a0, a1, n = 48) {
+  const p = []; for (let i = 0; i <= n; i++) { const a = a0 + (a1 - a0) * i / n; p.push([cx + Math.cos(a) * rx, cy + Math.sin(a) * ry]); } return p;
+}
+const ell = (cx, cy, rx, ry, n = 56) => arc(cx, cy, rx, ry, 0, Math.PI * 2, n);
+function bez(p0, p1, p2, p3, n = 28) {
+  const p = []; for (let i = 0; i <= n; i++) { const t = i / n, u = 1 - t;
+    p.push([u*u*u*p0[0] + 3*u*u*t*p1[0] + 3*u*t*t*p2[0] + t*t*t*p3[0], u*u*u*p0[1] + 3*u*u*t*p1[1] + 3*u*t*t*p2[1] + t*t*t*p3[1]]); }
+  return p;
+}
+const shape = (pts) => { const r = resample(pts); let len = 0; for (let i = 1; i < r.length; i++) len += Math.hypot(r[i][0] - r[i-1][0], r[i][1] - r[i-1][1]); return { pts: r, len }; };
+
+/* ---------- strokes ---------- */
+function stroke(pts, p, o = {}) {
+  if (p <= 0 || pts.length < 2) return;
+  const { seed = 1, amp = 1.8, w = 5, col = C.char, a = 1, dx = 0, dy = 0 } = o;
+  const n = Math.max(2, Math.min(pts.length, Math.ceil(pts.length * p)));
+  ctx.save(); ctx.globalAlpha *= a; ctx.strokeStyle = col; ctx.lineWidth = w; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  for (let i = 0; i < n; i++) {
+    const x = pts[i][0] + dx + wob(seed, i, PH) * amp * 2, y = pts[i][1] + dy + wob(seed + 57, i, PH) * amp * 2;
+    if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+  }
+  ctx.stroke(); ctx.restore();
+}
+// marker + pencil double pass
+function ink(pts, p, o = {}) {
+  const s = o.seed || 1, a = o.a ?? 1, amp = o.amp ?? 1.8;
+  stroke(pts, p, { ...o, w: o.w || 5.5, a: 0.95 * a, amp });
+  stroke(pts, p, { ...o, seed: s + 101, w: 2.2, a: 0.55 * a, amp: amp * 1.7, col: o.col2 || o.col || C.char });
+}
+function fillPts(pts, col, a = 1, dx = 0, dy = 0, seed = 5, amp = 2) {
+  ctx.save(); ctx.globalAlpha *= a; ctx.fillStyle = col; ctx.beginPath();
+  for (let i = 0; i < pts.length; i++) {
+    const x = pts[i][0] + dx + wob(seed, i, PH) * amp * 2, y = pts[i][1] + dy + wob(seed + 57, i, PH) * amp * 2;
+    if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+  }
+  ctx.closePath(); ctx.fill(); ctx.restore();
+}
+function drawGroup(items, p, o = {}) {
+  let total = 0; for (const it of items) total += it.len;
+  let cur = clamp(p) * total, acc = 0, k = 0;
+  for (const it of items) { const lp = clamp((cur - acc) / it.len); acc += it.len; k++; if (lp > 0) ink(it.pts, lp, { ...o, seed: (o.seed || 1) + k * 13 }); }
+}
+
+/* ---------- scene geometry (built once) ---------- */
+const G = {};
+function build() {
+  const closed = (...v) => v.concat([v[0]]);
+  // mixing desk
+  const desk = [];
+  desk.push(shape(closed([390, 520], [1030, 520], [1130, 650], [290, 650])));
+  desk.push(shape([[290, 650], [290, 770], [1130, 770], [1130, 650]]));
+  desk.push(shape(lineP(340, 770, 340, 835))); desk.push(shape(lineP(1080, 770, 1080, 835)));
+  G.colX = []; for (let i = 0; i < 8; i++) G.colX.push(430 + i * 75.7);
+  for (const x of G.colX) desk.push(shape(ell(x, 548, 10, 10, 20)));
+  for (const x of G.colX) desk.push(shape(lineP(x, 588, x, 640)));
+  desk.push(shape(closed([360, 676], [480, 676], [480, 746], [360, 746])));
+  desk.push(shape(closed([940, 676], [1060, 676], [1060, 746], [940, 746])));
+  desk.push(shape(arc(420, 738, 46, 46, Math.PI * 1.15, Math.PI * 1.85, 20)));
+  desk.push(shape(arc(1000, 738, 46, 46, Math.PI * 1.15, Math.PI * 1.85, 20)));
+  for (let i = 0; i < 6; i++) desk.push(shape(lineP(540, 684 + i * 12, 880, 684 + i * 12)));
+  G.desk = desk;
+  // microphone
+  const cx = 1260, cy = 470, mic = [];
+  mic.push(shape(ell(cx, cy, 44, 60)));
+  for (const yy of [-36, -18, 0, 18, 36]) { const hw = 44 * Math.sqrt(1 - (yy / 60) ** 2); mic.push(shape(lineP(cx - hw, cy + yy, cx + hw, cy + yy))); }
+  mic.push(shape(lineP(cx, cy - 58, cx, cy + 58)));
+  mic.push(shape(arc(cx, 545, 38, 28, 0, Math.PI, 24)));
+  mic.push(shape(lineP(cx, 573, cx, 822)));
+  mic.push(shape(lineP(cx, 800, cx - 68, 835))); mic.push(shape(lineP(cx, 800, cx + 68, 835))); mic.push(shape(lineP(cx, 800, cx, 842)));
+  G.mic = mic;
+  // conga
+  const bx = 1560, conga = [];
+  const bl = bez([1460, 520], [1438, 600], [1470, 740], [1492, 812]), br = bez([1660, 520], [1682, 600], [1650, 740], [1628, 812]);
+  conga.push(shape(bl)); conga.push(shape(br));
+  conga.push(shape(arc(bx, 812, 68, 16, 0, Math.PI, 24)));
+  for (let k = 1; k <= 4; k++) { const f = k / 5; conga.push(shape(bl.map((p, i) => [p[0] + (br[i][0] - p[0]) * f, p[1] + (br[i][1] - p[1]) * f]))); }
+  conga.push(shape(arc(bx, 548, 100, 26, 0, Math.PI, 28)));
+  G.conga = conga;
+  // ground
+  G.ground = [shape(lineP(150, 835, 1790, 835)), shape([[260, 853], [900, 851], [1500, 854]])];
+  // crowd slots: 3 rows x 14 columns, shuffled, 40 used
+  const rng = mulberry(20061);
+  const slots = [];
+  for (let r = 0; r < 3; r++) for (let c = 0; c < 14; c++) slots.push({ x: 95 + c * 132 + (r % 2) * 62 + (rng() - 0.5) * 36, y: 940 + r * 62 + (rng() - 0.5) * 18, r: 46 + r * 6 + rng() * 5 });
+  for (let i = slots.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [slots[i], slots[j]] = [slots[j], slots[i]]; }
+  const perHit = [3, 3, 4, 4, 4, 4, 5, 5, 4, 4];
+  G.heads = []; let idx = 0;
+  perHit.forEach((n, h) => { for (let k = 0; k < n; k++) { const s = slots[idx]; G.heads.push({ ...s, hit: h, k, seed: 300 + idx, kind: Math.floor(hash(idx, 9) * 4), wave: hash(idx, 4) < 0.38 }); idx++; } });
+  G.heads.sort((a, b) => a.y - b.y);
+  // ink stains left after each hit
+  G.stains = cues.hits.map((t, h) => { const a = hash(h, 21) * Math.PI * 2, r = 220 + hash(h, 22) * 130, rr = 8 + hash(h, 23) * 14;
+    const x = 1560 + Math.cos(a) * r, y = 520 + Math.sin(a) * r * 0.55 - 40; return { t, pts: ell(x, y, rr * 1.2, rr, 14).map((p, i) => [p[0] + (hash(h, i, 5) - 0.5) * rr * 0.5, p[1] + (hash(h, i, 6) - 0.5) * rr * 0.5]) }; });
+  // grain textures (3 boil phases)
+  G.grain = [];
+  for (let k = 0; k < 3; k++) {
+    const oc = document.createElement('canvas'); oc.width = W; oc.height = H; const g = oc.getContext('2d');
+    const im = g.createImageData(W, H), d = im.data, r = mulberry(77 + k * 31);
+    for (let i = 0; i < W * H; i++) { const v = r(); d[i * 4] = 70; d[i * 4 + 1] = 55; d[i * 4 + 2] = 40; d[i * 4 + 3] = v < 0.5 ? 0 : Math.floor((v - 0.5) * 34); }
+    g.putImageData(im, 0, 0);
+    g.strokeStyle = 'rgba(90,70,50,0.07)'; g.lineWidth = 1;
+    for (let i = 0; i < 160; i++) { const x = r() * W, y = r() * H, a = r() * 6.28, l = 6 + r() * 16; g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke(); }
+    G.grain.push(oc);
+  }
+}
+
+/* ---------- animated parts ---------- */
+function lastHit(t) { let h = -1; for (let i = 0; i < cues.hits.length; i++) if (t >= cues.hits[i]) h = i; return h; }
+
+function smoke(t0, x, y, t, seed) {
+  const dt = t - t0; if (dt < 0 || dt > 1.0) return;
+  const u = dt / 1.0, R = 34 + 40 * eo3(u), cy = y - 150 * eo3(u), a = 1 - clamp((u - 0.5) / 0.5);
+  const mk = (cx0, cy0, rad, ph) => { const p = []; for (let i = 0; i <= 40; i++) { const th = i / 40 * Math.PI * 2; const rr = rad * (1 + 0.22 * Math.sin(3 * th + ph) + 0.1 * Math.sin(5 * th + ph * 2)); p.push([cx0 + Math.cos(th) * rr, cy0 + Math.sin(th) * rr * 0.85]); } return p; };
+  ctx.save(); ctx.globalAlpha *= a;
+  for (const [ox, oy, k, ph] of [[0, 0, 1, seed], [-34, 20, 0.62, seed + 2], [38, 26, 0.55, seed + 4]]) {
+    const pts = mk(x + ox * (1 + u * 0.6), cy + oy, R * k, ph);
+    fillPts(pts, C.paper, 1, 0, 0, seed + k * 10, 1.5); stroke(pts, 1, { seed: seed + k * 7, w: 4.5, amp: 1.8 });
+  }
+  ctx.restore();
+}
+function speedLines(t0, x, y, dirx, t) {
+  const dt = t - t0; if (dt < 0 || dt > 0.4) return;
+  const u = dt / 0.4, head = eo3(clamp(u * 2.2)), tail = ei3(clamp((u - 0.35) / 0.65));
+  for (let i = 0; i < 6; i++) {
+    const yy = y + (i - 2.5) * 22 + (hash(i, 3) - 0.5) * 10, len = 80 + hash(i, 4) * 90, x0 = x - dirx * (10 + hash(i, 5) * 40);
+    const a = x0 - dirx * len * tail, b = x0 - dirx * len * head;
+    stroke(lineP(a, yy, b, yy), 1, { seed: 40 + i, w: 3.5, amp: 0.8, a: 0.85 });
+  }
+}
+function drawSplash(h, dt) {
+  const D = 0.5; if (dt < 0 || dt > D + 0.05) return;
+  const u = dt / D, r = 36 + 200 * eo3(u), a = 1 - clamp((u - 0.55) / 0.45), cx = 1560, cy = 520;
+  ctx.save(); ctx.globalAlpha *= a;
+  const ring = ell(cx, cy, r, r * 0.62, 48);
+  stroke(ring, 1, { seed: 500 + h, w: 20 * (1 - u) + 4, col: C.red, amp: 3.5 });
+  stroke(ell(cx, cy, r * 0.8, r * 0.5, 40), 1, { seed: 520 + h, w: 3, col: C.char, amp: 2.5, a: 0.8, dx: 4, dy: -3 });
+  for (let k = 0; k < 8; k++) {
+    const an = (k / 8 + hash(h, k) * 0.1) * Math.PI * 2, rr = r * (0.92 + hash(h, k, 2) * 0.2), size = (6 + hash(h, k, 3) * 12) * (1 - u * 0.6);
+    fillPts(ell(cx + Math.cos(an) * rr, cy + Math.sin(an) * rr * 0.62, size * 1.3, size, 12), C.red, 0.95, 0, 0, 600 + k, 1.2);
+  }
+  for (let k = 0; k < 7; k++) {
+    const an = hash(h, k, 8) * Math.PI * 2, v = 300 + hash(h, k, 9) * 260;
+    const x = cx + Math.cos(an) * v * dt * 0.9, y = cy - 180 * (0.5 + hash(h, k, 10)) * dt * 4 + 850 * dt * dt + Math.sin(an) * 30;
+    fillPts(ell(x, y, 7, 7, 10), C.red, 0.95, 0, 0, 700 + k, 0.8);
+  }
+  ctx.restore();
+}
+
+function drawHead(hd, t) {
+  const t0 = cues.hits[hd.hit] + 0.1 + hd.k * 0.045, dt = t - t0; if (dt <= 0) return;
+  const s = spring(dt), tq = Math.floor(t * 12) / 12;
+  const bob = Math.sin(tq * Math.PI * 2 / 0.625) * 5 * clamp(dt * 3);
+  const r = hd.r, sd = hd.seed;
+  ctx.save(); ctx.translate(hd.x, hd.y + (1 - clamp(s, 0, 1.2)) * 150 + bob); const sc = Math.max(0.01, Math.min(1.12, s)); ctx.scale(sc, sc);
+  const look = (960 - hd.x) / 960 * 6;
+  const shoulders = arc(0, r * 1.5, r * 1.5, r * 0.95, Math.PI, Math.PI * 2, 24);
+  if (hd.wave) {
+    const wv = Math.sin(tq * 9 + hd.seed) * r * 0.25;
+    stroke(lineP(r * 1.0, r * 1.2, r * 1.75 + wv, -r * 0.35), 1, { seed: sd + 50, w: 5, amp: 1.2 });
+    fillPts(ell(r * 1.75 + wv, -r * 0.45, r * 0.24, r * 0.24, 12), C.paper, 1, 0, 0, sd + 51, 0.8); stroke(ell(r * 1.75 + wv, -r * 0.45, r * 0.24, r * 0.24, 12), 1, { seed: sd + 52, w: 4, amp: 0.8 });
+  }
+  fillPts(shoulders.concat([[r * 1.5, r * 2.6], [-r * 1.5, r * 2.6]]), C.paper, 1, 0, 0, sd, 0.5); stroke(shoulders, 1, { seed: sd + 1, w: 5, amp: 1.5 });
+  const head = ell(0, 0, r, r * 1.05, 36);
+  fillPts(head, C.paper, 1, 0, 0, sd + 2, 0.5);
+  if (hd.kind === 1) {          // bucket hat
+    const crown = [[-r * 0.8, -r * 0.55], [-r * 0.66, -r * 1.3], [r * 0.66, -r * 1.3], [r * 0.8, -r * 0.55]];
+    fillPts(crown, C.red, 0.92, 5, -4, sd + 3, 0.6); stroke(crown, 1, { seed: sd + 4, w: 4.5, amp: 1.2 });
+    const brim = ell(0, -r * 0.55, r * 1.38, r * 0.27, 28); fillPts(brim, C.red, 0.92, 5, -4, sd + 5, 0.6); stroke(brim, 1, { seed: sd + 6, w: 4.5, amp: 1.2 });
+  } else if (hd.kind === 2) {   // headphones
+    stroke(arc(0, 0, r * 1.1, r * 1.12, Math.PI * 1.02, Math.PI * 1.98, 24), 1, { seed: sd + 7, w: 9, col: C.red, amp: 1.2, dx: 4, dy: -3 });
+    stroke(arc(0, 0, r * 1.1, r * 1.12, Math.PI * 1.02, Math.PI * 1.98, 24), 1, { seed: sd + 8, w: 4, amp: 1.2 });
+    for (const sx of [-1, 1]) { const cup = ell(sx * r * 1.1, r * 0.05, r * 0.2, r * 0.34, 14); fillPts(cup, C.red, 0.95, 3, -3, sd + 9, 0.4); stroke(cup, 1, { seed: sd + 10 + sx, w: 4, amp: 1 }); }
+  } else if (hd.kind === 3) {   // hair bun
+    const bun = ell(0, -r * 1.2, r * 0.38, r * 0.34, 16); fillPts(bun, C.char, 1, 0, 0, sd + 11, 0.6);
+    stroke(arc(0, 0, r, r * 1.05, Math.PI * 1.1, Math.PI * 1.9, 20), 1, { seed: sd + 12, w: 11, amp: 1.2 });
+  }
+  stroke(head, 1, { seed: sd + 13, w: 5, amp: 1.5 });
+  for (const sx of [-1, 1]) { ctx.save(); ctx.fillStyle = C.char; ctx.beginPath(); ctx.arc(sx * r * 0.36 + look, -r * 0.02, r * 0.09, 0, 6.3); ctx.fill(); ctx.restore(); }
+  const open = (Math.floor(t * 12) % 2) * 0.12;
+  stroke(arc(look * 0.6, r * 0.3, r * 0.3, r * (0.2 + open), 0.1 * Math.PI, 0.9 * Math.PI, 12), 1, { seed: sd + 14, w: 4, amp: 0.8 });
+  fillPts(ell(-r * 0.58 + look, r * 0.28, r * 0.17, r * 0.12, 10), C.red, 0.55, 0, 0, sd + 15, 0.3);
+  fillPts(ell(r * 0.58 + look, r * 0.28, r * 0.17, r * 0.12, 10), C.red, 0.55, 0, 0, sd + 16, 0.3);
+  ctx.restore();
+}
+
+function stage(t) {
+  const c = cues;
+  const gp = clamp((t - c.ground[0]) / (c.ground[1] - c.ground[0]));
+  ctx.save(); ctx.globalAlpha = 1;
+  const hI = lastHit(t), dtH = hI >= 0 ? t - c.hits[hI] : 9, amp = hI >= 0 ? Math.exp(-dtH * 14) : 0;
+  // camera punch on hits
+  let shx = 0, shy = 0; if (hI >= 0 && dtH < 0.14) { const fr = Math.floor(t * 30); shx = (hash(fr, 1) - 0.5) * 9 * (1 - dtH / 0.14); shy = (hash(fr, 2) - 0.5) * 7 * (1 - dtH / 0.14); }
+  ctx.translate(shx, shy - 60);
+  drawGroup(G.ground, eo3(gp), { seed: 2, w: 5 });
+  // --- desk
+  const pd = clamp((t - c.desk[0]) / (c.desk[1] - c.desk[0])), rd = clamp((t - c.desk[1]) / 0.4);
+  if (rd > 0) { for (const x of G.colX) fillPts(ell(x, 548, 10, 10, 14), C.red, 0.92 * rd, 5, -4, 61, 0.6); fillPts(arc(420, 738, 38, 38, Math.PI * 1.15, Math.PI * 1.85, 14).concat([[420, 738]]), C.red, 0.55 * rd, 5, -4, 62, 0.8); }
+  drawGroup(G.desk, pd, { seed: 10, w: 5.5 });
+  if (pd > 0.62) {
+    const k = clamp((pd - 0.62) / 0.12);
+    G.colX.forEach((x, i) => {
+      const pos = hI >= 0 ? Math.floor(hash(hI, i, 7) * 5) / 4 : (i % 3) / 2, yk = 596 + pos * 38;
+      const r = [[x - 12, yk - 7], [x + 12, yk - 7], [x + 12, yk + 7], [x - 12, yk + 7], [x - 12, yk - 7]];
+      fillPts(r, C.red, 0.95 * k * rd, 4, -3, 80 + i, 0.5); stroke(r, k, { seed: 90 + i, w: 4, amp: 0.8 });
+    });
+    // VU needles
+    const ang = Math.PI * (1.3 + 0.35 * (hI >= 0 ? 0.35 + 0.65 * amp : 0.15));
+    for (const [mx, sd] of [[420, 120], [1000, 121]]) stroke(lineP(mx, 738, mx + Math.cos(ang + (mx > 700 ? 0.1 : 0)) * 40, 738 + Math.sin(ang) * 40), k, { seed: sd, w: 4, col: C.red, amp: 0.8 });
+  }
+  // --- mic
+  const pm = clamp((t - c.mic[0]) / (c.mic[1] - c.mic[0])), rm = clamp((t - c.mic[1]) / 0.4);
+  if (rm > 0) fillPts(ell(1260, 470, 44, 60, 28), C.red, 0.9 * rm, 7, -6, 71, 0.8);
+  drawGroup(G.mic, pm, { seed: 30, w: 5.5 });
+  // --- conga (head dynamic)
+  const pc = clamp((t - c.conga[0]) / (c.conga[1] - c.conga[0])), rc = clamp((t - c.conga[1]) / 0.4);
+  const headRy = 28 * (1 - 0.4 * amp), headCy = 520 + 6 * amp;
+  const headPts = ell(1560, headCy, 100, headRy, 64);
+  if (rc > 0) { stroke(headPts, 1, { seed: 140, w: 18, col: C.red, a: 0.92 * rc, dx: 5, dy: -4, amp: 1.2 }); [0, 1, 2, 3, 4].forEach((k) => fillPts(ell(1475 + k * 42.5, 556 + Math.sin(k / 4 * Math.PI) * 22, 7, 7, 10), C.red, 0.95 * rc, 4, -3, 150 + k, 0.4)); }
+  if (pc > 0) {
+    const headFrac = clamp(pc / 0.28);
+    if (headFrac > 0) ink(headPts, headFrac, { seed: 141, w: 5.5 });
+    drawGroup(G.conga, clamp((pc - 0.12) / 0.88), { seed: 50, w: 5.5 });
+  }
+  // --- red stains left behind
+  for (const s of G.stains) if (t > s.t + 0.25) fillPts(s.pts, C.red, 0.9, 0, 0, 800, 0.6);
+  // --- splashes
+  c.hits.forEach((ht, h) => drawSplash(h, t - ht));
+  // --- crowd
+  for (const hd of G.heads) drawHead(hd, t);
+  // smoke + speed lines
+  [[c.smoke[0], 330, 520], [c.smoke[1], 1100, 500], [c.smoke[2], 700, 470], [c.smoke[3], 1560, 470]].forEach(([t0, x, y], i) => smoke(t0, x, y, t, 900 + i * 40));
+  speedLines(c.speed[0], 300, 640, 1, t); speedLines(c.speed[1], 1180, 520, -1, t); speedLines(c.speed[2], 1700, 640, -1, t);
+  ctx.restore();
+}
+
+function word(txt, size, baseY, col, t0, t, track = 0, weight = 800) {
+  const dt = t - t0; if (dt <= 0) return;
+  const s = spring(dt);
+  ctx.save(); ctx.font = `${size}px BRMGBagel`; ctx.letterSpacing = track + 'px'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  ctx.translate(960, baseY - size * 0.35); ctx.rotate((1 - Math.min(1, s)) * (hash(Math.round(t0 * 100), 3) - 0.5) * 0.28);
+  const sc = Math.max(0.001, s); ctx.scale(sc, sc);
+  ctx.fillStyle = col; ctx.fillText(txt, 5, size * 0.35 - 4);
+  const jx = (hash(PH, 1, Math.round(t0 * 10)) - 0.5) * 3.4, jy = (hash(PH, 2, Math.round(t0 * 10)) - 0.5) * 3.4;
+  ctx.strokeStyle = C.char; ctx.lineWidth = 4; ctx.lineJoin = 'round'; ctx.strokeText(txt, jx, size * 0.35 + jy);
+  ctx.restore();
+}
+
+function render(t) {
+  const c = cues; PH = Math.floor(t * 12) % 3;
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1;
+  ctx.fillStyle = C.paper; ctx.fillRect(0, 0, W, H);
+  ctx.drawImage(G.grain[PH], 0, 0);
+  // stage (collapses at 6.9–7.5)
+  const u = clamp((t - c.collapse[0]) / (c.collapse[1] - c.collapse[0]));
+  if (t < c.collapse[1]) {
+    ctx.save(); ctx.translate(960, 560); const s = 1 - 0.92 * ei3(u); ctx.scale(s, s); ctx.rotate(u * 0.35); ctx.translate(-960, -560);
+    ctx.globalAlpha = 1 - eo3(clamp((u - 0.4) / 0.6)); stage(t); ctx.restore();
+  }
+  // radial speed lines + big ink ring as the stage collapses
+  if (t > c.collapse[0] && t < c.collapse[1] + 0.5) {
+    const u2 = clamp((t - c.collapse[0] - 0.05) / 0.6);
+    for (let i = 0; i < 18; i++) {
+      const an = i / 18 * Math.PI * 2 + hash(i, 6) * 0.2, r0 = 140 + 560 * eo3(u2 - 0.28), r1 = 140 + 560 * eo3(u2);
+      if (r1 > r0) stroke(lineP(960 + Math.cos(an) * r0, 520 + Math.sin(an) * r0 * 0.7, 960 + Math.cos(an) * r1, 520 + Math.sin(an) * r1 * 0.7), 1, { seed: 950 + i, w: 4.5, amp: 0.8, col: i % 3 === 0 ? C.red : C.char, a: 1 - clamp((u2 - 0.6) / 0.4) });
+    }
+  }
+  const dr = t - c.words.beat;
+  if (dr > 0 && dr < 0.65) { const uu = dr / 0.65; stroke(ell(960, 360, 80 + 760 * eo3(uu), (80 + 760 * eo3(uu)) * 0.55, 72), 1, { seed: 990, w: 36 * (1 - uu) + 4, col: C.red, amp: 4, a: 1 - clamp((uu - 0.5) / 0.5) }); }
+  // wordmark
+  word('beat', 280, 350, C.red, c.words.beat, t);
+  word('republic', 280, 595, C.char, c.words.republic, t);
+  word('media group', 104, 772, C.char, c.words.media, t, 7);
+  // tagline reveal + squiggle underline
+  ctx.save(); ctx.font = '800 44px BRMGPoppins'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  const tag = 'Four decades in the music business.', tw = ctx.measureText(tag).width, tl = 960 - tw / 2;
+  const tu = clamp((t - c.tagline[0]) / (c.tagline[1] - c.tagline[0]));
+  if (tu > 0) {
+    ctx.save(); ctx.beginPath(); ctx.rect(tl - 12, 810, (tw + 24) * eo3(tu), 120); ctx.clip();
+    const jx = (hash(PH, 7) - 0.5) * 2.2, jy = (hash(PH, 8) - 0.5) * 2.2;
+    ctx.fillStyle = C.char; ctx.fillText(tag, 960 + jx, 872 + jy); ctx.restore();
+  }
+  ctx.restore();
+  const uq = clamp((t - c.underline[0]) / (c.underline[1] - c.underline[0]));
+  if (uq > 0) { const sq = []; for (let x = tl; x <= tl + tw; x += 6) sq.push([x, 906 + Math.sin(x * 0.045) * 5]); stroke(sq, eo3(uq), { seed: 970, w: 7, col: C.red, amp: 1.2 }); }
+  // footer + handle tag
+  const fa = clamp((t - c.footer) / 0.3);
+  if (fa > 0) { ctx.save(); ctx.globalAlpha = fa * 0.85; ctx.font = '800 24px BRMGPoppins'; ctx.letterSpacing = '1.5px'; ctx.textAlign = 'center'; ctx.fillStyle = C.char; ctx.fillText('© 2006 Beat Republic Media Group', 960, 1036); ctx.restore(); }
+  const ta = clamp((t - c.tag) / 0.3);
+  if (ta > 0) { ctx.save(); ctx.globalAlpha = ta * 0.8; ctx.font = '26px BRMGAnton'; ctx.letterSpacing = '3px'; ctx.textAlign = 'right'; ctx.fillStyle = C.char; ctx.fillText('@beatrepublicmg', 1860, 64); ctx.restore(); }
+  // paper vignette
+  const vg = ctx.createRadialGradient(960, 540, 420, 960, 540, 1150); vg.addColorStop(0, 'rgba(120,95,60,0)'); vg.addColorStop(1, 'rgba(120,95,60,0.13)');
+  ctx.save(); ctx.globalAlpha = 1; ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H); ctx.restore();
+}
+
+window.DEMO = { width: W, height: H, fps: 30, duration: 10 };
+(async () => {
+  cues = await (await fetch('./cues.json')).json();
+  await Promise.all([
+    document.fonts.load("280px BRMGBagel", 'beat republic media group'), document.fonts.load("26px BRMGAnton", '@beatrepublicmg'),
+    document.fonts.load("800 44px BRMGPoppins", 'Four decades in the music business. © 2006 @beatrepublicmg'),
+  ]);
+  await document.fonts.ready;
+  build();
+  window.renderAt = async (t) => { render(t); };
+  render(0);
+  window.__ready = true;
+})().catch((e) => { console.error('init failed', e && e.stack || e); });
+</script>
+</body>
+</html>
