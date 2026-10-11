@@ -310,3 +310,64 @@
   font-style: normal;
   font-display: block;
 }
+
+/* ---- DLF brand fonts (BRMG, DevX, Crankington, GoGo Maps) ----
+   Anton, Bebas Neue, DM Sans and Inter are already registered above. */
+@font-face {
+  font-family: 'Bagel Fat One';
+  src: url('/assets/fonts/latin/bagelfatone/BagelFatOne-Regular.ttf') format('truetype');
+  font-weight: 1 1000;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: 'Poppins';
+  src: url('/assets/fonts/latin/poppins/Poppins-ExtraBold.ttf') format('truetype');
+  font-weight: 800;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: 'Syne';
+  src: url('/assets/fonts/latin/syne/Syne-VF.ttf') format('truetype');
+  font-weight: 400 800;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: 'Montserrat';
+  src: url('/assets/fonts/latin/montserrat/Montserrat-VF.ttf') format('truetype');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: 'Montserrat';
+  src: url('/assets/fonts/latin/montserrat/Montserrat-Italic-VF.ttf') format('truetype');
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: block;
+}
+@font-face {
+  font-family: 'Playfair Display';
+  src: url('/assets/fonts/latin/playfairdisplay/PlayfairDisplay-Italic-VF.ttf') format('truetype');
+  font-weight: 400 900;
+  font-style: italic;
+  font-display: block;
+}
+@font-face {
+  font-family: 'Roboto';
+  src: url('/assets/fonts/latin/roboto/Roboto-VF.ttf') format('truetype');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: block;
+}
+/* Varsity Team: the font file is not committed (license not confirmed for a public repo).
+   Put VarsityTeam-Bold.otf at the path below on your own machine. */
+@font-face {
+  font-family: 'Varsity Team';
+  src: url('/assets/fonts/latin/varsityteam/VarsityTeam-Bold.otf') format('opentype');
+  font-weight: 1 1000;
+  font-style: normal;
+  font-display: block;
+}

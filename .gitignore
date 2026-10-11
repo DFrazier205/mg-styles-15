@@ -11,3 +11,16 @@ demos/*/out/stills/
 *.blend
 *.blend1
 *.npz
+
+# DLF brand fonts (SIL OFL Google Fonts, small) are committed so the films can load them.
+# Varsity Team (.otf) stays ignored: license not confirmed for a public repo.
+!assets/fonts/latin/anton/*.ttf
+!assets/fonts/latin/bagelfatone/*.ttf
+!assets/fonts/latin/bebasneue/*.ttf
+!assets/fonts/latin/dmsans/*.ttf
+!assets/fonts/latin/inter/*.ttf
+!assets/fonts/latin/montserrat/*.ttf
+!assets/fonts/latin/playfairdisplay/*.ttf
+!assets/fonts/latin/poppins/*.ttf
+!assets/fonts/latin/roboto/*.ttf
+!assets/fonts/latin/syne/*.ttf
