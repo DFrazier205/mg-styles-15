@@ -1,0 +1,200 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Go-Go Royalty.com — One Drop</title>
+<link rel="stylesheet" href="/assets/fonts/fonts.css">
+<style>
+@font-face { font-family: 'GGRBarlow'; src: url('./fonts/barlow-condensed-latin-500-normal.woff2') format('woff2'); font-weight: 500; font-display: block; }
+@font-face { font-family: 'GGRBarlow'; src: url('./fonts/barlow-condensed-latin-600-normal.woff2') format('woff2'); font-weight: 600; font-display: block; }
+html,body{margin:0;padding:0;background:#0d0710;overflow:hidden;width:1920px;height:1080px}canvas{display:block}
+</style></head>
+<body><canvas id="c" width="1920" height="1080"></canvas>
+<script>
+/* Go-Go Royalty.com — "One Drop": liquid-motion film. One violet drop falls, ripples, swells and splits into the three stations
+   (Vintage / Today's / BounceBeat) that pour into the GO-GO ROYALTY wordmark. Pure function of t; timing from cues.json (shared with audio.py).
+   Brand: void #0d0710, Vivid Violet #b45cfd (+ Royal Purple / Deep Plum surfaces), Playfair Display italic, Barlow Condensed utility type. */
+const W = 1920, H = 1080, cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const K = { void:'#0d0710', card:'#1a0d22', royal:'#5d306b', plum:'#6c3e7a', vio:'#b45cfd', wh:'#FFFFFF', blush:'#f4e8fe', muted:'#c4a8d4', lav:'#e9d3fc' };
+const RGB = { vio:[180,92,253], plum:[108,62,122], royal:[93,48,107] };
+const clamp = (x, a = 0, b = 1) => x < a ? a : x > b ? b : x;
+const lerp = (a, b, u) => a + (b - a) * u;
+const inv = (a, b, x) => clamp((x - a) / (b - a));
+const eo = u => 1 - (1 - u) ** 3, eio = u => u < .5 ? 4 * u ** 3 : 1 - (-2 * u + 2) ** 3 / 2;
+const eb = (u, s = 1.9) => 1 + (s + 1) * (u - 1) ** 3 + s * (u - 1) ** 2;
+const hash = (...a) => { let h = 2166136261; for (const v of a) { h ^= Math.floor(v * 1000) + 0x9e3779b9; h = Math.imul(h, 16777619); } return ((h ^ h >>> 15) >>> 0) / 4294967296; };
+let C = null;
+
+/* ---------- gooey liquid layer (half-res blur + alpha threshold, with a wet rim highlight) ---------- */
+const SW = 960, SH = 540;
+const oc = document.createElement('canvas'); oc.width = SW; oc.height = SH; const octx = oc.getContext('2d', { willReadFrequently: true });
+const lc = document.createElement('canvas'); lc.width = SW; lc.height = SH; const lctx = lc.getContext('2d');
+function gooey(circles, rgb, blur = 7) {
+  if (!circles.length) return;
+  octx.clearRect(0, 0, SW, SH); octx.filter = `blur(${blur}px)`; octx.fillStyle = '#fff';
+  for (const [x, y, r] of circles) { if (r < 1) continue; octx.beginPath(); octx.arc(x / 2, y / 2, r / 2, 0, Math.PI * 2); octx.fill(); }
+  octx.filter = 'none';
+  const src = octx.getImageData(0, 0, SW, SH).data, out = lctx.createImageData(SW, SH), o = out.data, N = SW * SH, off = 3 * SW + 3;
+  for (let i = 0; i < N; i++) {
+    const a = src[i * 4 + 3]; if (a < 100) continue;
+    const al = Math.min(1, (a - 100) / 50), an = i + off < N ? src[(i + off) * 4 + 3] : 0;
+    const hl = Math.max(0, Math.min(1, (an - a) / 70)) * .45 + (a > 245 ? 0 : 0);
+    o[i * 4] = rgb[0] + (244 - rgb[0]) * hl; o[i * 4 + 1] = rgb[1] + (232 - rgb[1]) * hl; o[i * 4 + 2] = rgb[2] + (254 - rgb[2]) * hl; o[i * 4 + 3] = al * 255;
+  }
+  lctx.putImageData(out, 0, 0); ctx.imageSmoothingEnabled = true; ctx.drawImage(lc, 0, 0, W, H);
+}
+
+/* ---------- text (wordmark) ---------- */
+const TXT = [['GO-GO', 360], ['ROYALTY', 620]]; let TS = [];
+const tc = document.createElement('canvas'); tc.width = W; tc.height = H; const tctx = tc.getContext('2d');
+const TOP = 160, BOT = 640;
+const oc2 = document.createElement('canvas'); oc2.width = W; oc2.height = H; const oq = oc2.getContext('2d');
+function measureText() {
+  TS = TXT.map(([s, y]) => { ctx.font = 'italic 900 300px "Playfair Display"'; const w = ctx.measureText(s).width; const size = Math.min(300, 300 * 1380 / w); return { s, y, size }; });
+}
+function drawText(c2, mode) { // mode 'fill' | 'stroke'
+  c2.textAlign = 'center'; c2.textBaseline = 'alphabetic';
+  for (const t of TS) { c2.font = `italic 900 ${t.size}px "Playfair Display"`; if (mode === 'fill') c2.fillText(t.s, 960, t.y); else c2.strokeText(t.s, 960, t.y); }
+}
+function surf(x, L, t, amp) { return lerp(BOT + 30, TOP - 30, L) + Math.sin(x * 0.012 + t * 3.2) * amp + Math.sin(x * 0.031 - t * 2.1) * amp * .5; }
+function bandPoly(c2, x0, x1, L, t, amp, lb, rb, col) { // liquid column x0..x1 with wavy side boundaries (lb/rb optional functions of y)
+  c2.beginPath(); const step = 16; let first = true;
+  for (let x = x0; x <= x1; x += step) { const y = surf(x, L, t, amp); if (first) { c2.moveTo(x, y); first = false; } else c2.lineTo(x, y); }
+  c2.lineTo(x1, BOT + 80); c2.lineTo(x0, BOT + 80); c2.closePath(); c2.fillStyle = col; c2.fill();
+}
+function liquidInText(t) {
+  const c = C, L = eo(inv(c.pour[0] + .5, c.pour[1], t)); const Lw = eo(inv(c.wash[0], c.wash[1], t));
+  if (L <= 0) return;
+  tctx.clearRect(0, 0, W, H); tctx.globalCompositeOperation = 'source-over'; tctx.fillStyle = '#fff'; drawText(tctx, 'fill');
+  tctx.globalCompositeOperation = 'source-in';
+  const amp = 11 * (1 - L ** 3) + 3;
+  const wob = y => Math.sin(y * .03 + t * 2) * 16;
+  // three colours: left plum (Vintage), middle violet (Today's), right royal (BounceBeat), wavy colour boundaries
+  tctx.fillStyle = K.plum; tctx.fillRect(0, 0, W, H);
+  // paint liquid columns: base = plum column across full width, violet middle, royal right, each clipped to the water surface
+  tctx.clearRect(0, 0, W, H); tctx.globalCompositeOperation = 'source-over'; tctx.fillStyle = '#fff'; drawText(tctx, 'fill'); tctx.globalCompositeOperation = 'source-in';
+  const draw3 = (L2, cols) => {
+    for (let y = 0; y < H; y += 12) { /* strips with wavy boundaries */ }
+    const b1 = y => 700 + wob(y), b2 = y => 1220 + wob(y + 90);
+    const seg = (xa, xb, col) => {
+      tctx.beginPath(); const pts = [];
+      for (let x = 0; x <= W; x += 16) pts.push([x, surf(x, L2, t, amp)]);
+      tctx.save(); tctx.beginPath();
+      // region between boundaries
+      tctx.moveTo(xa(TOP), -10); for (let y = -10; y <= H + 10; y += 24) tctx.lineTo(xa(y), y);
+      for (let y = H + 10; y >= -10; y -= 24) tctx.lineTo(xb(y), y); tctx.closePath(); tctx.clip();
+      tctx.beginPath(); tctx.moveTo(0, pts[0][1]); pts.forEach(p => tctx.lineTo(p[0], p[1])); tctx.lineTo(W, H); tctx.lineTo(0, H); tctx.closePath(); tctx.fillStyle = col; tctx.fill(); tctx.restore();
+    };
+    seg(() => -50, b1, cols[0]); seg(b1, b2, cols[1]); seg(b2, () => W + 50, cols[2]);
+  };
+  draw3(L, [K.plum, K.vio, K.royal]);
+  if (Lw > 0) { tctx.beginPath(); const pts = []; for (let x = 0; x <= W; x += 16) pts.push([x, surf(x, Lw, t, 6)]); tctx.moveTo(0, pts[0][1]); pts.forEach(p => tctx.lineTo(p[0], p[1])); tctx.lineTo(W, H); tctx.lineTo(0, H); tctx.closePath(); tctx.fillStyle = K.wh; tctx.fill(); }
+  tctx.globalCompositeOperation = 'source-over';
+  ctx.drawImage(tc, 0, 0);
+}
+
+/* ---------- liquid geometry ---------- */
+const BEAT = () => 60 / C.bpm;
+function bez(p0, p1, p2, p3, s) { const u = 1 - s; return [u * u * u * p0[0] + 3 * u * u * s * p1[0] + 3 * u * s * s * p2[0] + s * s * s * p3[0], u * u * u * p0[1] + 3 * u * u * s * p1[1] + 3 * u * s * s * p2[1] + s * s * s * p3[1]]; }
+const STREAMS = [
+  { col: 'plum', p: [[440, 620], [380, -110], [700, -130], [700, 430]] },
+  { col: 'vio', p: [[960, 620], [840, -130], [1080, -130], [960, 430]] },
+  { col: 'royal', p: [[1480, 620], [1540, -110], [1220, -130], [1220, 430]] },
+];
+function build(t) {
+  const c = C, L = { vio: [], plum: [], royal: [] }, RY = 735, B = BEAT();
+  // bead + neck, then the fall
+  if (t >= c.bead[0] && t < c.fall) {
+    const u = inv(c.bead[0], c.bead[1], t), yb = 120 + 60 * u * u, rb = 12 + 44 * eo(u), rn = 16 * (1 - .72 * u * u);
+    L.vio.push([960, yb, rb + Math.sin(t * 9) * 1.2]);
+    for (let y = -40; y < yb - rb * .5; y += 14) L.vio.push([960, y, rn + (u > .8 ? 0 : 1)]);
+  }
+  if (t >= c.fall && t < c.impact + .4) {
+    const v = clamp((t - c.fall) / (c.impact - c.fall)), y = 190 + (RY - 190) * v * v, r = 48 * (1 - eo(inv(c.impact, c.impact + .4, t)));
+    L.vio.push([960, y, r]); const st = v < 1 ? 1 : 0;
+    [[-34, 36], [-62, 26], [-86, 15]].forEach(([dy, rr]) => L.vio.push([960, y + dy * st, rr * st]));
+  }
+  // impact: crown droplets, pool, swell
+  if (t >= c.impact) {
+    const dt = t - c.impact;
+    for (let i = 0; i < 10; i++) { const vx = (i - 4.5) * 85 + (hash(i, 1) - .5) * 40, vy = 560 + hash(i, 2) * 260, x = 960 + vx * dt, y = RY + (-vy * dt + .5 * 1900 * dt * dt), r = (13 + hash(i, 3) * 9); if (dt < 1.3 && y < RY + 20) L.vio.push([x, y, r * (1 - inv(.9, 1.3, dt))]); }
+    const pw = 1000 * eo(inv(c.impact, c.impact + .8, t)) * (1 - eo(inv(c.impact + .8, c.split + .4, t)));
+    if (pw > 30) for (let x = 960 - pw / 2; x <= 960 + pw / 2; x += 34) L.vio.push([x, 756, 17 + Math.sin(x * .02 + t * 5) * 3]);
+    const sw = eo(inv(c.impact, c.split, t)), wob = Math.sin(dt * 14) * 6 * Math.exp(-dt * 2.5);
+    const cy = lerp(735, 640, sw), r = lerp(46, 150, sw) + wob;
+    if (t < c.split) L.vio.push([960, cy, r]);
+    else {
+      const e0 = eo(inv(c.split, c.split + 1.0, t)), e = eio(inv(c.split + .1, c.split + 1.1, t)), pulse = 1 + .045 * Math.exp(-((t - c.split) % B) * 9) * inv(c.split + 1.1, c.split + 1.4, t);
+      const drain = 1 - eo(inv(c.pour[0], c.pour[0] + .9, t));
+      const rv = lerp(150, 125, inv(c.split, c.split + .8, t)) * pulse * drain, rc = 118 * e0 * pulse * drain, dx = 500 * e;
+      const bob = Math.sin(t * 2.6) * 6 * inv(c.split + 1.1, c.split + 1.6, t);
+      L.vio.push([960, 640 + bob, rv]); L.plum.push([960 - dx, 640 - bob, rc]); L.royal.push([960 + dx, 640 - bob, rc]);
+      if (e < .9) for (let k = 1; k <= 6; k++) { const nr = Math.max(0, 62 * (1 - e) + 3), xx = lerp(0, dx, k / 7); L.plum.push([960 - xx, 640, nr]); L.royal.push([960 + xx, 640, nr]); }
+    }
+  }
+  // pour: streams arc up and over, then fall into the letters
+  if (t >= c.pour[0] && t < c.pour[1] + .3) {
+    const head = eio(inv(c.pour[0] + .1, c.pour[0] + 1.0, t)), tail = eio(inv(c.pour[1] - .9, c.pour[1], t)) * head;
+    STREAMS.forEach(s => { for (let q = tail; q <= head; q += .012) { const [x, y] = bez(s.p[0], s.p[1], s.p[2], s.p[3], q); L[s.col].push([x, y, 26 - 8 * q + Math.sin(q * 40 - t * 12) * 2]); } });
+  }
+  // wash: letters drain into a three-colour puddle under the wordmark
+  if (t >= c.wash[0]) {
+    const dt = t - c.wash[0], bw = 1180 * eo(inv(c.wash[0] + .1, c.wash[1] + .3, t));
+    for (let x = 960 - bw / 2; x <= 960 + bw / 2; x += 14) { const r = 16 + Math.sin(x * .03 + t * 4) * 3, col = x < 960 - 195 ? 'plum' : x > 960 + 195 ? 'royal' : 'vio'; L[col].push([x, 690, r]); }
+    for (let i = 0; i < 6; i++) { const t0 = i * .06, d = dt - t0; if (d > 0 && d < .2) { const x = 560 + i * 160 + (hash(i, 9) - .5) * 40, y = 640 + 2100 * d * d, col = x < 765 ? 'plum' : x > 1155 ? 'royal' : 'vio'; L[col].push([x, y, 13], [x, y - 24, 8]); } }
+  }
+  return L;
+}
+
+/* ---------- scene ---------- */
+function ripples(t) {
+  const c = C; for (let k = 0; k < 3; k++) { const dt = t - c.impact - k * .22; if (dt < 0 || dt > 1.4) continue; const u = dt / 1.4, rx = 30 + 540 * eo(u);
+    ctx.beginPath(); ctx.ellipse(960, 758, rx, rx * .12, 0, 0, Math.PI * 2); ctx.strokeStyle = K.vio; ctx.globalAlpha = (1 - u) * .9; ctx.lineWidth = 2 + 6 * (1 - u); ctx.stroke(); ctx.globalAlpha = 1; }
+}
+function dust(t) { for (let i = 0; i < 46; i++) { const x = hash(i, 1) * W, y = (hash(i, 2) * H - t * (6 + hash(i, 3) * 10) + H * 4) % H, r = 1 + hash(i, 4) * 2.4;
+  ctx.globalAlpha = .14 + .12 * Math.sin(t * 1.4 + i); ctx.fillStyle = K.muted; ctx.beginPath(); ctx.arc(x + Math.sin(t * .5 + i) * 14, y, r, 0, 7); ctx.fill(); } ctx.globalAlpha = 1; }
+function label(name, years, t0, t) {
+  const c = C, dt = t - t0; if (dt < 0) return; const out = inv(c.pour[0], c.pour[0] + .45, t); if (out >= 1) return;
+  const s = Math.max(0, eb(inv(t0, t0 + .45, t), 2.2)), x = { VINTAGE: 460, "TODAY'S": 960, BOUNCEBEAT: 1460 }[name];
+  ctx.save(); ctx.globalAlpha = (1 - out); ctx.translate(x, 850 + (1 - s) * 40 + out * 40);
+  ctx.font = '600 52px GGRBarlow'; ctx.letterSpacing = '6px'; ctx.textAlign = 'center'; ctx.fillStyle = K.blush; ctx.fillText(name, 3, 0);
+  if (years) { ctx.font = '500 34px GGRBarlow'; ctx.letterSpacing = '4px'; ctx.fillStyle = K.muted; ctx.fillText(years, 2, 44); }
+  ctx.restore();
+}
+function ticker(t) {
+  const a = clamp((t - C.tickerIn) / .5); if (a <= 0) return;
+  const s = 'RARE ESSENCE  ·  BACKYARD BAND  ·  TCB  ·  JUNKYARD BAND  ·  NEG  ·  BOUNCEBEAT KINGS  ·  ';
+  ctx.save(); ctx.font = '500 30px GGRBarlow'; ctx.letterSpacing = '3.6px'; ctx.textAlign = 'left'; ctx.fillStyle = K.lav; ctx.globalAlpha = a * .9;
+  const w = ctx.measureText(s).width, x0 = -((t * 120) % w); for (let x = x0; x < W; x += w) ctx.fillText(s, x, 1034); ctx.restore();
+}
+function ending(t) {
+  const c = C;
+  const p1 = Math.max(0, eb(inv(c.line, c.line + .5, t), 2)); if (t >= c.line) { ctx.save(); ctx.globalAlpha = clamp((t - c.line) / .2); ctx.translate(960, 800 + (1 - p1) * 36); ctx.font = 'italic 700 80px "Playfair Display"'; ctx.textAlign = 'center'; ctx.fillStyle = K.blush; ctx.fillText('Free, 24/7', 0, 0); ctx.restore(); }
+  if (t >= c.cta) {
+    const s = Math.max(0, eb(inv(c.cta, c.cta + .5, t), 2.2)); ctx.save(); ctx.translate(960, 925); ctx.scale(s, s);
+    ctx.font = '600 44px GGRBarlow'; ctx.letterSpacing = '3px'; const tw = ctx.measureText('go-goroyalty.com').width, pw = tw + 100;
+    ctx.shadowColor = 'rgba(180,92,253,0.35)'; ctx.shadowBlur = 24; ctx.beginPath(); ctx.roundRect(-pw / 2, -40, pw, 80, 40); ctx.fillStyle = K.vio; ctx.fill(); ctx.shadowBlur = 0;
+    ctx.textAlign = 'center'; ctx.fillStyle = K.void; ctx.fillText('go-goroyalty.com', 2, 15); ctx.restore();
+  }
+}
+function render(t) {
+  const c = C; ctx.clearRect(0, 0, W, H); ctx.fillStyle = K.void; ctx.fillRect(0, 0, W, H);
+  const vg = ctx.createRadialGradient(960, 560, 100, 960, 560, 1000); vg.addColorStop(0, '#1a0d22'); vg.addColorStop(1, '#0d0710'); ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+  dust(t); ripples(t);
+  // wordmark outline, then liquid inside the letters
+  const oa = clamp((t - c.outline) / .5) * (1 - inv(c.wash[0] + .2, c.wash[1], t));
+  if (oa > 0) { oq.clearRect(0, 0, W, H); oq.globalCompositeOperation = 'source-over'; oq.strokeStyle = K.muted; oq.lineWidth = 8; oq.lineJoin = 'round'; drawText(oq, 'stroke'); oq.globalCompositeOperation = 'destination-out'; oq.fillStyle = '#000'; drawText(oq, 'fill'); oq.globalCompositeOperation = 'source-over';
+    ctx.save(); ctx.globalAlpha = oa * .8; ctx.drawImage(oc2, 0, 0); ctx.restore(); }
+  liquidInText(t);
+  const L = build(t); gooey(L.royal, RGB.royal); gooey(L.plum, RGB.plum); gooey(L.vio, RGB.vio);
+  c.labels.forEach(([n, y, t0]) => label(n, y, t0, t));
+  ending(t); ticker(t);
+}
+
+window.DEMO = { width: W, height: H, fps: 30, duration: 10 };
+(async () => {
+  C = await (await fetch('./cues.json')).json();
+  await Promise.all([document.fonts.load('italic 900 300px "Playfair Display"', 'GO-GO ROYALTY'), document.fonts.load('italic 700 80px "Playfair Display"', 'Free, 24/7'),
+    document.fonts.load('600 52px GGRBarlow', "VINTAGE TODAY'S BOUNCEBEAT go-goroyalty.com"), document.fonts.load('500 30px GGRBarlow', 'RARE ESSENCE 1977–2009')]);
+  await document.fonts.ready; measureText();
+  window.renderAt = async (t) => { render(t); };
+  render(0); window.__ready = true;
+})().catch(e => console.error('init failed', e && e.stack || e));
+</script></body></html>

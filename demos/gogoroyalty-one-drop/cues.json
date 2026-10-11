@@ -1,0 +1,14 @@
+{
+  "bpm": 100,
+  "bead": [0.4, 1.8],
+  "fall": 1.8,
+  "impact": 2.4,
+  "split": 3.6,
+  "labels": [["VINTAGE", "1977–2009", 4.2], ["TODAY'S", "2022–2026", 4.8], ["BOUNCEBEAT", "", 5.4]],
+  "pour": [6.0, 7.7],
+  "outline": 5.9,
+  "wash": [7.8, 8.4],
+  "line": 8.3,
+  "cta": 8.9,
+  "tickerIn": 0.6
+}
