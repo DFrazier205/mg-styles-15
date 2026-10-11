@@ -39,7 +39,8 @@ Lower-case, hyphens, no spaces. Say what it is and which version:
 | DevX | Page #F5F7FA, Indigo #4F46E5, Lime #2DD54A, Violet #7C3AED, Ink #14162B | Syne, DM Sans |
 | Crankington DC | #0F0F0F, #FFB612 | Varsity Team, Roboto |
 | GoGo Maps | Navy #151C63, Deep Navy #0A0E30, Terracotta #D3603D, Grey #B8B9B9, White | (see brand skill) |
-| Go-Go Royalty VR | add palette here | add fonts here |
-| Go-Go Royalty.com | add palette here | add fonts here |
+| Go-Go Royalty / Go-Go Royalty VR (one shared system) | Void #0d0710 (canvas only), Card #1a0d22, Elevated #241030, Royal Purple #5d306b and Deep Plum #6c3e7a (surfaces only), Vivid Violet #b45cfd (one CTA/accent per design), White #FFFFFF (hero H1), Blush Lilac #f4e8fe (H2/H3, body), Muted Purple #c4a8d4 (captions), Lavender #e9d3fc (ticker only). No greys, no other brands' colors | Playfair Display Black Italic (display, H1-H3), Barlow Condensed (labels, counters, ticker), Inter (body) |
+
+Go-Go Royalty taglines: "#NeverMuteDC #KeepRocking" (Royalty), "Experience Go-Go in 360°" (VR). Sites: go-goroyalty.com, go-goroyaltyvr.com. Hero sections always carry the band ticker: RARE ESSENCE · BACKYARD BAND · TCB · JUNKYARD BAND · NEG · BOUNCEBEAT KINGS.
 
 Footers: BRMG "© 2006 Beat Republic Media Group", DevX "© 2026 DevX", Crankington "© 2026 Crankington DC", GoGo Maps and Go-Go Royalty VR "© 2026".
