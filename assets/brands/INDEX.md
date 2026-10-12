@@ -14,7 +14,7 @@ What is in each brand folder, with notes for using the files in films. Paths are
 |---|---|---|
 | `CRANKington_Conga Street 2.png` | 1740x1792 | Gold "CRANK" over conga-and-laurel crest. Transparent. Dark grounds. |
 | `Crankington Tee B New.png` | 3450x2400 | Black arched "CRANKINGTON" with laurel/conga mark. Transparent. Light grounds. |
-| `Crankington banner dark.jpg` | 1024x585 | Gold wordmark on black. **Opaque**; has a small sparkle mark in the bottom-right corner (crop it). |
+| `Crankington banner dark.jpg` | 1024x585 | Gold arched 3D wordmark on black. **Opaque**, no sparkle. |
 | `Crankington black.png` | 3996x792 | Black wordmark, wide. Transparent. Light grounds. |
 | `Crankington curve conga yellow.png` | 3972x1402 | Gold wordmark with conga mark. Transparent. Dark grounds. |
 | `crankinton banner yellow.png` | 1280x853 | Black CG monogram + wordmark on gold block. |
@@ -56,5 +56,4 @@ What is in each brand folder, with notes for using the files in films. Paths are
 
 ## Cautions
 - **Public fork.** Band logos, album art, concert photos and the "Run Joe" artwork may belong to other people. Keep them only if you have permission, or make the fork private.
-- **Corner sparkle:** `crankington/logos/Crankington banner dark.jpg` still carries a small sparkle mark in the bottom-right corner. Crop it or replace it before using it in a film.
 - **File names** have spaces and capitals. They work, but clean names (`brmg-crest.png`) are safer. Tell me if you want me to rename them.
