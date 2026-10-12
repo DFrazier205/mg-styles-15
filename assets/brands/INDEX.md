@@ -37,10 +37,10 @@ What is in each brand folder, with notes for using the files in films. Paths are
 |---|---|---|
 | `logos/Go Go Royalty logo.png` | 992x1062 | Black-and-white round seal (Washington Monument, Capitol, "GO-GO ROYALTY DC"). Transparent. |
 | `logos/GoGo Royalty logo.png` | 640x670 | Same seal in purple and black, on white. |
-| `images/Backyard Band.png` | 1045x1024 | Backyard Band logo, white on near-black. Corner sparkle mark (crop). |
+| `images/Backyard Band.png` | 1376x768 | Backyard Band logo, white on dark brown-black. Opaque. |
 | `images/Experience Unlimited.png` | 524x274 | EU winged logo on navy. |
-| `images/Junkyard band logo.png` | 1418x752 | Junkyard Band logo on black. Corner sparkle mark (crop). |
-| `images/Northeast Groovers logo.png` | 1376x768 | N.E.G logo on black. Corner sparkle mark (crop). |
+| `images/Junkyard band logo.png` | 1376x768 | Junkyard Band logo (white on black). Opaque. |
+| `images/Northeast Groovers logo.png` | 1376x768 | N.E.G logo (white on black). Opaque. |
 | `images/Rae Essence logo.jpg` | 500x500 | Rare Essence "RE" wings mark, red/white. |
 | `images/RE3.jpg` | 2143x1892 | Rare Essence album cover (blue). |
 | `images/GoGo picture EU 3.jpg` | 4496x3000 | Concert photo, congas. |
@@ -56,5 +56,5 @@ What is in each brand folder, with notes for using the files in films. Paths are
 
 ## Cautions
 - **Public fork.** Band logos, album art, concert photos and the "Run Joe" artwork may belong to other people. Keep them only if you have permission, or make the fork private.
-- **Corner sparkle:** a few images carry a small sparkle mark in the bottom-right corner. Crop it before using the image in a film.
+- **Corner sparkle:** `crankington/logos/Crankington banner dark.jpg` still carries a small sparkle mark in the bottom-right corner. Crop it or replace it before using it in a film.
 - **File names** have spaces and capitals. They work, but clean names (`brmg-crest.png`) are safer. Tell me if you want me to rename them.
