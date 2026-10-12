@@ -20,6 +20,11 @@ What is in each brand folder, with notes for using the files in films. Paths are
 | `crankinton banner yellow.png` | 1280x853 | Black CG monogram + wordmark on gold block. |
 | `gogo Congo Silloutte.png` | 1320x812 | Conga silhouette on a gold pill. Transparent. |
 
+## Crankington DC images (`assets/brands/crankington/images/`)
+| File | Size | Notes |
+|---|---|---|
+| `go go banner 2.png` | 1080x963 | Black "CRANKINGTON" over a crowd. |
+
 ## DevX (`assets/brands/devx/logos/`)
 | File | Size | Notes |
 |---|---|---|
@@ -49,7 +54,6 @@ What is in each brand folder, with notes for using the files in films. Paths are
 | `images/GoGo picture junkyard 2.jpg` | 4496x3000 | Junkyard Band performing. |
 | `images/Run Joe old school.png` | 1024x1026 | "Run Joe" cartoon artwork (a Mickey Mouse parody), transparent. |
 | `images/go go banner.png` | 1408x768 | "Celebrating 50 years of Go-Go" collage. |
-| `images/go go banner 2.png` | 1080x963 | Black "CRANKINGTON" over a crowd. **This is Crankington artwork**; move it to `crankington/images/`. |
 
 ## Not yet added
 `ggrvr/` (Go-Go Royalty VR) and `shared/` are empty.
