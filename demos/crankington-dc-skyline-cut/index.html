@@ -1,0 +1,295 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Crankington DC — DC Skyline Cut</title>
+<style>
+  html, body { margin: 0; background: #0F0F0F; overflow: hidden; }
+  canvas { display: block; }
+  #svg { position: absolute; left: -10px; top: -10px; width: 1px; height: 1px; overflow: hidden; }
+</style>
+</head>
+<body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<svg id="svg" xmlns="http://www.w3.org/2000/svg"></svg>
+<script>
+// DC Skyline Cut — Crankington DC — Line Art.
+// ONE continuous gold line: DC skyline (Capitol, Washington Monument) -> drops -> draws a conga -> its tail becomes a
+// drumstick -> strike -> ripple rings expand and fill the real Crankington crest. Every frame is a pure function of t.
+// All timing + geometry come from cues.json (audio.py reads the same file).
+const W = 1920, H = 1080;
+const DIR = '/demos/crankington-dc-skyline-cut/';
+window.DEMO = { width: W, height: H, fps: 30, duration: 10 };
+
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+let CUES, GOLD, BG, PIECES = [], CUM = [], TOTAL = 0, MAIN_D = '', MAIN_PATH, MAIN_EL, STICK_PATH, STICK_LEN;
+let crestFull, crestOutline, crestImg, CR;
+
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const lerp = (a, b, x) => a + (b - a) * x;
+const smooth = (a, b, x) => { x = clamp((x - a) / (b - a)); return x * x * (3 - 2 * x); };
+const easeOut3 = (x) => 1 - Math.pow(1 - x, 3);
+const easeOut4 = (x) => 1 - Math.pow(1 - x, 4);
+// cubic-bezier(0.65,0,0.35,1) solved by bisection (no libs, deterministic)
+function bezier(p1x, p1y, p2x, p2y) {
+  const cx = 3 * p1x, bx = 3 * (p2x - p1x) - cx, ax = 1 - cx - bx;
+  const cy = 3 * p1y, by = 3 * (p2y - p1y) - cy, ay = 1 - cy - by;
+  const X = (s) => ((ax * s + bx) * s + cx) * s, Y = (s) => ((ay * s + by) * s + cy) * s;
+  return (x) => {
+    x = clamp(x); let lo = 0, hi = 1, s = x;
+    for (let i = 0; i < 40; i++) { s = (lo + hi) / 2; if (X(s) < x) lo = s; else hi = s; }
+    return Y(s);
+  };
+}
+const easeIO = bezier(0.65, 0, 0.35, 1);
+function pieceEase(kind, x) {
+  x = clamp(x);
+  if (kind === 'out') return easeOut3(x);
+  if (kind === 'linear') return x;
+  if (kind === 'mild') return 0.5 * x + 0.5 * easeIO(x);
+  return easeIO(x);
+}
+const rad = (d) => d * Math.PI / 180;
+
+function loadImage(src) {
+  return new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => rej(new Error('image failed ' + src)); im.src = src; });
+}
+function mk(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
+
+async function setup() {
+  CUES = await (await fetch(DIR + 'cues.json', { cache: 'no-store' })).json();
+  GOLD = CUES.colors.gold; BG = CUES.colors.ground;
+  const svg = document.getElementById('svg');
+  const NS = 'http://www.w3.org/2000/svg';
+  // measure every piece in the DOM (the lengths in cues.json are for audio; the picture uses what the browser measures)
+  let cum = 0;
+  for (const p of CUES.pieces) {
+    const el = document.createElementNS(NS, 'path'); el.setAttribute('d', p.d); svg.appendChild(el);
+    const len = el.getTotalLength();
+    PIECES.push({ ...p, len }); CUM.push(cum); cum += len;
+    MAIN_D += (MAIN_D ? ' ' + p.d.replace(/^M\s*[-\d.]+[\s,]+[-\d.]+\s*/, '') : p.d);
+  }
+  TOTAL = cum;
+  MAIN_EL = document.createElementNS(NS, 'path'); MAIN_EL.setAttribute('d', MAIN_D); svg.appendChild(MAIN_EL);
+  MAIN_PATH = new Path2D(MAIN_D);
+  const sEl = document.createElementNS(NS, 'path'); sEl.setAttribute('d', CUES.stick.d); svg.appendChild(sEl);
+  STICK_LEN = sEl.getTotalLength(); STICK_PATH = new Path2D(CUES.stick.d);
+
+  // the real Crankington crest (conga + laurel, gold on transparent): fill layer, glow from its own silhouette, outline layer
+  CR = CUES.crest;
+  crestImg = await loadImage(encodeURI(CR.file));
+  await crestImg.decode();
+  const dh = CR.height, dw = dh * crestImg.naturalWidth / crestImg.naturalHeight;
+  const x0 = CR.center[0] - dw / 2, y0 = CR.center[1] - dh / 2;
+  crestFull = mk(W, H);
+  { // glow (blurred copy of the crest's own silhouette) under the crest itself
+    const g = crestFull.getContext('2d');
+    g.save(); g.filter = 'blur(26px)'; g.globalAlpha = 0.30; g.drawImage(crestImg, x0, y0, dw, dh); g.restore();
+    g.drawImage(crestImg, x0, y0, dw, dh);
+  }
+  crestOutline = mk(W, H);
+  { // outer rim of the crest: dilate by 3px, cut the crest out, tint to brand gold
+    const o = crestOutline.getContext('2d');
+    for (let i = 0; i < 16; i++) { const a = i / 16 * Math.PI * 2; o.drawImage(crestImg, x0 + Math.cos(a) * 3, y0 + Math.sin(a) * 3, dw, dh); }
+    o.globalCompositeOperation = 'destination-out'; o.drawImage(crestImg, x0, y0, dw, dh);
+    o.globalCompositeOperation = 'source-in'; o.fillStyle = GOLD; o.fillRect(0, 0, W, H);
+  }
+  CR.box = [x0, y0, dw, dh];
+}
+
+// ------------------------------------------------------------------ the pen (main path)
+function mainS(t) {
+  let s = 0;
+  for (let i = 0; i < PIECES.length; i++) {
+    const p = PIECES[i];
+    if (t >= p.t1) s = CUM[i] + p.len;
+    else if (t > p.t0) { s = CUM[i] + p.len * pieceEase(p.ease, (t - p.t0) / (p.t1 - p.t0)); break; }
+    else { s = CUM[i]; break; }
+  }
+  return Math.min(s, TOTAL);
+}
+function mainTip(t) { const q = MAIN_EL.getPointAtLength(clamp(mainS(t), 0, TOTAL - 0.01)); return [q.x, q.y]; }
+
+// ------------------------------------------------------------------ the drumstick (rigid, pivots on the end of the tail)
+function stickState(t) {
+  const k = CUES.stick, th = (d) => rad(d);
+  const draw = clamp((t - k.draw[0]) / (k.draw[1] - k.draw[0]));
+  let a;
+  if (t < k.anticipate[0]) a = k.theta_raised;
+  else if (t < k.anticipate[1]) a = lerp(k.theta_raised, k.theta_lift, easeIO((t - k.anticipate[0]) / (k.anticipate[1] - k.anticipate[0])));
+  else if (t < k.hit) { const u = (t - k.strike_from) / (k.hit - k.strike_from); a = lerp(k.theta_lift, k.theta_strike, u * u * u); }
+  else {
+    const u = t - k.hit, r = k.rebound;
+    a = k.theta_strike + r.amp * Math.exp(-r.decay * u) * Math.abs(Math.sin(2 * Math.PI * r.freq * u)) + r.rest * (1 - Math.exp(-6 * u));
+  }
+  return { draw: easeIO(draw) * 0.5 + draw * 0.5, th: th(a) };
+}
+function stickTip(th) { const k = CUES.stick; return [k.pivot[0] + Math.cos(th) * k.length, k.pivot[1] + Math.sin(th) * k.length]; }
+
+// ------------------------------------------------------------------ camera: follows the pen tip, settles to the full frame, punches on the hit
+function camera(t) {
+  const c = CUES.camera;
+  let z = c.zoom[c.zoom.length - 1][1];
+  for (let i = 0; i < c.zoom.length - 1; i++) {
+    const a = c.zoom[i], b = c.zoom[i + 1];
+    if (t >= a[0] && t < b[0]) { z = lerp(a[1], b[1], smooth(a[0], b[0], t)); break; }
+    if (t < c.zoom[0][0]) z = c.zoom[0][1];
+  }
+  let fx = 0, fy = 0, n = 0;
+  if (t < c.follow_until) {
+    for (let k = 0; k <= 10; k++) { const q = mainTip(Math.max(0, t - 0.5 * k / 10)); fx += q[0]; fy += q[1]; n++; }
+    fx /= n; fy = fy / n + 40;
+  }
+  const w = smooth(c.lock[0], c.lock[1], t);
+  let cx = lerp(fx, W / 2, w), cy = lerp(fy, H / 2, w);
+  if (t >= c.follow_until) { cx = W / 2; cy = H / 2; }
+  const hx = W / 2 / z, hy = H / 2 / z;
+  cx = clamp(cx, hx, W - hx); cy = clamp(cy, hy, H - hy);
+  const u = t - CUES.hit;
+  const punch = u >= 0 ? 1 + c.punch.amp * Math.exp(-u / c.punch.tau) : 1;
+  return { cx, cy, z: z * punch };
+}
+
+function glow(x, y, r, a) {
+  const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+  g.addColorStop(0, `rgba(255,182,18,${a})`); g.addColorStop(0.35, `rgba(255,182,18,${a * 0.35})`); g.addColorStop(1, 'rgba(255,182,18,0)');
+  ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+// the line: old segments sit at ~36%, the last stretch behind the pen ramps up to full gold
+function drawLine(s, alphaMul, LW) {
+  if (s <= 0.01) return;
+  const AOLD = CUES.dim.old_alpha, WIN = CUES.dim.window_px, N = 12, BIG = TOTAL * 4;
+  ctx.lineWidth = LW; ctx.lineJoin = 'round'; ctx.strokeStyle = GOLD;
+  ctx.lineCap = 'round'; ctx.setLineDash([s, BIG]); ctx.lineDashOffset = 0;
+  ctx.globalAlpha = AOLD * alphaMul; ctx.stroke(MAIN_PATH);
+  ctx.lineCap = 'butt';
+  for (let k = 0; k < N; k++) {
+    const a1 = s - WIN * k / N; let a0 = s - WIN * (k + 1) / N;
+    if (a1 <= 0) continue; a0 = Math.max(0, a0);
+    const ramp = AOLD + (1 - AOLD) * (1 - (k + 0.5) / N);
+    const ak = 1 - (1 - ramp) / (1 - AOLD);
+    ctx.globalAlpha = ak * alphaMul; ctx.setLineDash([a1 - a0 + 0.6, BIG]); ctx.lineDashOffset = -a0; ctx.stroke(MAIN_PATH);
+  }
+  ctx.setLineDash([]); ctx.lineDashOffset = 0; ctx.globalAlpha = 1; ctx.lineCap = 'round';
+}
+
+function drawStick(t, alphaMul, LW) {
+  if (t < CUES.stick.draw[0]) return;
+  const k = CUES.stick, P = k.pivot, st = stickState(t);
+  const swing = t > k.anticipate[1] - 0.01 && t < k.hit + 0.2;
+  const ghosts = swing ? [0.036, 0.024, 0.012] : [];
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = GOLD; ctx.lineWidth = LW;
+  ghosts.forEach((dt, i) => {
+    const g = stickState(t - dt);
+    ctx.save(); ctx.translate(P[0], P[1]); ctx.rotate(g.th);
+    ctx.setLineDash([STICK_LEN * st.draw, STICK_LEN * 4]); ctx.globalAlpha = (0.16 + 0.06 * (2 - i)) * alphaMul;
+    ctx.stroke(STICK_PATH); ctx.restore();
+  });
+  ctx.save(); ctx.translate(P[0], P[1]); ctx.rotate(st.th);
+  ctx.setLineDash([STICK_LEN * st.draw, STICK_LEN * 4]); ctx.globalAlpha = alphaMul; ctx.stroke(STICK_PATH);
+  ctx.restore(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+}
+
+function ringAspect(r) { return 0.29 + 0.71 * smooth(80, 500, r); }
+function drawRing(cx, cy, r, alpha, LW) {
+  if (r < 2 || alpha <= 0.002) return;
+  ctx.globalAlpha = alpha; ctx.lineWidth = LW; ctx.strokeStyle = GOLD;
+  ctx.beginPath(); ctx.ellipse(cx, cy, r, r * ringAspect(r), 0, 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1;
+}
+function radialMask(layerCtx, cx, cy, R, feather, mode) {
+  // mode 'in': keep inside R (destination-in) | 'out': remove inside R (destination-out)
+  const r0 = Math.max(0, R - feather);
+  const g = layerCtx.createRadialGradient(cx, cy, r0, cx, cy, Math.max(R, r0 + 0.01));
+  g.addColorStop(0, 'rgba(0,0,0,1)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+  layerCtx.globalCompositeOperation = mode === 'in' ? 'destination-in' : 'destination-out';
+  layerCtx.fillStyle = g; layerCtx.fillRect(0, 0, W, H); layerCtx.globalCompositeOperation = 'source-over';
+}
+let tmpA, tmpB, tmpS;
+function drawCrest(t) {
+  const u = t - CUES.hit; if (u <= 0) return;
+  const R = CUES.rings, S = CUES.strike_point, F = R.feather;
+  const lead = R.lead_max_radius * easeOut4(clamp(u / R.lead_duration));
+  const fillR = lead >= R.lead_max_radius - 0.5 ? R.lead_max_radius + 400 : lead - R.fill_lag * easeOut3(clamp(u / 0.4));
+  // breathing push during the hold
+  const br = 1 + 0.012 * smooth(CR.breathe_from, CUES.duration, t);
+  ctx.save(); ctx.translate(CR.center[0], CR.center[1]); ctx.scale(br, br); ctx.translate(-CR.center[0], -CR.center[1]);
+  if (!tmpA) { tmpA = mk(W, H); tmpB = mk(W, H); tmpS = mk(W, H); }
+  // fill (line-to-fill from the strike point)
+  const a = tmpA.getContext('2d'); a.globalCompositeOperation = 'source-over'; a.clearRect(0, 0, W, H); a.drawImage(crestFull, 0, 0);
+  radialMask(a, S[0], S[1], Math.max(fillR, 1), F, 'in');
+  ctx.drawImage(tmpA, 0, 0);
+  // outline band between the fill edge and the lead ring
+  if (fillR < R.lead_max_radius + 100) {
+    const b = tmpB.getContext('2d'); b.globalCompositeOperation = 'source-over'; b.clearRect(0, 0, W, H); b.drawImage(crestOutline, 0, 0);
+    radialMask(b, S[0], S[1], Math.max(lead, 1), F, 'in');
+    radialMask(b, S[0], S[1], Math.max(fillR, 1), F, 'out');
+    ctx.drawImage(tmpB, 0, 0);
+  }
+  // shimmer along the crest during the hold (clipped to its own silhouette)
+  const sh = CR.shimmer;
+  if (t > sh[0] && t < sh[1]) {
+    const p = easeIO((t - sh[0]) / (sh[1] - sh[0])), bw = CR.box[2] * 0.22;
+    const x = CR.box[0] - bw + (CR.box[2] + bw * 2) * p;
+    const s = tmpS.getContext('2d'); s.globalCompositeOperation = 'source-over'; s.clearRect(0, 0, W, H);
+    s.drawImage(crestImg, CR.box[0], CR.box[1], CR.box[2], CR.box[3]);
+    s.globalCompositeOperation = 'source-atop';
+    const g = s.createLinearGradient(x - bw, 0, x + bw, CR.box[3] * 0.35);
+    g.addColorStop(0, 'rgba(255,226,140,0)'); g.addColorStop(0.5, 'rgba(255,226,140,0.55)'); g.addColorStop(1, 'rgba(255,226,140,0)');
+    s.fillStyle = g; s.fillRect(0, 0, W, H);
+    ctx.drawImage(tmpS, 0, 0);
+  }
+  ctx.restore();
+}
+
+window.renderAt = async (t) => {
+  const cam = camera(t), LW = CUES.line_width / cam.z;
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = BG; ctx.fillRect(0, 0, W, H);
+  ctx.setTransform(cam.z, 0, 0, cam.z, W / 2 - cam.cx * cam.z, H / 2 - cam.cy * cam.z);
+  const D = CUES.dim, hit = CUES.hit;
+  // line art recedes once the crest fills in
+  const recede = smooth(D.end_from, D.end_to, t);
+  const alphaMul = lerp(1, D.end_alpha / D.old_alpha * 0.9, recede);
+
+  drawLine(mainS(t), alphaMul, LW);
+  drawStick(t, alphaMul, LW);
+
+  // pen tip glow (rides the line, then the drumstick bead)
+  let tip = mainTip(t), tipA = 0.9;
+  if (t >= CUES.stick.draw[0]) { const st = stickState(t); tip = stickTip(st.th); }
+  const u = t - hit;
+  if (u > 0) tipA = 0.9 * Math.exp(-u / 0.25);
+  if (t < CUES.stick.draw[0] || u < 1.2) {
+    glow(tip[0], tip[1], 30, tipA);
+    ctx.fillStyle = GOLD; ctx.globalAlpha = Math.min(1, tipA + 0.1); ctx.beginPath(); ctx.arc(tip[0], tip[1], 3.4, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1;
+  }
+
+  if (u > 0) {
+    const S = CUES.strike_point, R = CUES.rings;
+    // impact flash
+    if (u < 0.22) glow(S[0], S[1], lerp(40, 190, easeOut3(u / 0.22)), 0.85 * (1 - u / 0.22));
+    // trailing ripple rings (the lead ring is drawn below: it is the reveal edge of the crest)
+    for (let i = 0; i < R.trail_count; i++) {
+      const uu = u - (R.trail_start + R.trail_gap * i);
+      if (uu <= 0) continue;
+      const p = clamp(uu / R.trail_duration);
+      drawRing(S[0], S[1], R.trail_max_radius * easeOut3(p), 0.85 * Math.pow(1 - p, 1.3), LW);
+    }
+    const lead = R.lead_max_radius * easeOut4(clamp(u / R.lead_duration));
+    drawRing(S[0], S[1], lead, 0.95 * (1 - smooth(0.7, 1, u / R.lead_duration)), LW);
+  }
+  drawCrest(t);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+};
+
+(async () => {
+  await setup();
+  await document.fonts.ready;
+  window.__ready = true;
+})();
+</script>
+</body>
+</html>
