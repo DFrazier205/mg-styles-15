@@ -13,7 +13,7 @@ os.makedirs(os.path.join(HERE, 'out'), exist_ok=True)
 SR = 48000
 norm = lambda y, pk=.9: y * (pk / (np.max(np.abs(y)) + 1e-9))
 
-m = recipes.synthwave(bpm=C['bpm'], key=C['key'], mode=C['mode'], drop=C['drop'], build=C['build'], outro=C['outro'])
+m = recipes.synthwave(bpm=C['bpm'], key=C['key'], mode=C['mode'], drop=C['drop'], build=C['build'], outro=C['outro'], music_level=-23)
 f = m.form
 mus = m.group('music')
 mus.region('filter', 0.0, C['track_lock'] + 0.15, hz=[(0.0, 700), (C['track_lock'], 2400), (C['track_lock'] + 0.15, 16000)], mode='lp')
@@ -28,6 +28,7 @@ S(sfx.head_switch(), at=C['track_lock'], gain=-2)
 for i, g in enumerate(C['glitches']):
     S(sfx.glitch(0.07, 'digital', seed=i), at=g, gain=-11 if g > DROP else -9)
 S(sfx.riser(DROP - 1.6, 'noise', intensity=0.7), at=1.6, gain=-17)
+S(sfx.vinyl(OUT - 1.0), at=0.9, gain=-26)                        # worn-tape / record crackle under the whole film
 
 # --- the slam: chrome title
 S(sfx.impact('cinematic'), at=DROP, gain=0, verb=-12)
@@ -70,19 +71,19 @@ def conga(kind='open', vel=0.9, seed=0):
     y = F.lpf(y, 5500); y = y / (np.max(np.abs(y)) + 1e-9) * vel
     return Sound(np.stack([y, y]).astype(np.float32), 0.0)
 
-cg = m.track('conga', level=-19, sends={'room': -14})
+cg = m.track('conga', level=-15, sends={'room': -14})
 rm = m.track('rim', level=-28, sends={'room': -12}, group='music')
-cb = m.track('cowbell', level=-32, pan=0.3, group='music')
+cb = m.track('cowbell', level=-28, pan=0.3, group='music')
 kinds = ['low', 'open', 'slap', 'open', 'slap', 'low', 'open', 'slap']
 step = 60 / C['bpm'] / 4
 pat = 'x.xx.x..x.xx.x.x'
-for bar in range(10):
-    for k, ch in enumerate(pat):
-        t = DROP + bar * 16 * step + k * step
-        if t >= OUT - 0.02: break
-        if ch == 'x': cg.add(conga(kinds[(bar * 3 + k) % 8], 0.95 if k % 4 == 0 else 0.8, seed=k + 7 * bar), t)
+for j in range(-8, int((OUT - DROP) / step) + 1):            # 8-step pre-roll into the drop (matches the picture's groove())
+    t = DROP + j * step
+    if t >= OUT - 0.02: break
+    bar, k = divmod(j, 16)
+    if pat[k] == 'x': cg.add(conga(kinds[(bar * 3 + k) % 8], (0.95 if k % 4 == 0 else 0.8) * (0.55 if j < 0 else 1.0), seed=k + 7 * (bar % 10)), t)
 rm.loop(lambda v: drums.rim(v), '....x.......x...', DROP, OUT)
-cb.loop(lambda v: drums.cowbell(v), 'x..x..x...x.x...', C['ticker'], OUT)
+cb.loop(lambda v: drums.cowbell(v), 'x..x..x...x.x...', DROP, OUT)
 
 hits = [C['track_lock'], DROP, C['neon'][0], C['seal'][0], C['cta'], OUT]
 res = m.export(os.path.join(HERE, 'out/audio.wav'), lufs=-14, tp=-2.0, spectrogram=os.path.join(HERE, 'out/audio_spec.png'))

@@ -8,10 +8,11 @@ html,body{margin:0;padding:0;background:#0d0710;overflow:hidden;width:1920px;hei
 </style></head>
 <body><canvas id="c" width="1920" height="1080"></canvas>
 <script>
-/* Go-Go Royalty.com — "Vintage Station" (prompt 12-1, 80s synthwave / VHS).
-   A VHS tape locks in on a violet perspective grid, a striped sun rises behind wireframe mountains and the DC skyline
-   (Capitol, Washington Monument), a chrome VINTAGE STATION title slams in with 1977-2009 in neon, a 24-hour clock runs, and the sun
-   slides aside to become the halo of the real Go-Go Royalty seal for the end card. Pure function of t; timing from cues.json.
+/* Go-Go Royalty.com — "Vintage Station" (prompt 12-1, 80s VHS), mid-1980s DC go-go edition.
+   A VHS tape locks in on a dusk avenue of DC row houses (parked cars, streetlights, a records shop, a carry-out) with the Capitol at the end of the
+   street and the Washington Monument over the roofs; the camera dollies down the block while a stoop with xeroxed band handbills and a boombox
+   and a pair of congas slide in and pulse to the groove (same pattern as audio.py); a chrome VINTAGE STATION title slams in with 1977-2009 in neon,
+   a 24-hour clock runs, then the sun slides aside to become the halo of the real Go-Go Royalty seal for the end card. Pure function of t; timing from cues.json.
    Brand: void #0d0710, Vivid Violet #b45cfd (single accent), Royal Purple / Deep Plum surfaces, Playfair Display Black Italic, Barlow Condensed, no greys. */
 const W = 1920, H = 1080, HZ = 640, cv = document.getElementById('c'), ctx = cv.getContext('2d', { willReadFrequently: true });
 const K = { void:'#0d0710', card:'#1a0d22', elev:'#241030', royal:'#5d306b', plum:'#6c3e7a', vio:'#b45cfd', wh:'#ffffff', blush:'#f4e8fe', muted:'#c4a8d4', lav:'#e9d3fc' };
@@ -23,7 +24,7 @@ const eb = (u, s = 1.9) => 1 + (s + 1) * (u - 1) ** 3 + s * (u - 1) ** 2;
 const hash = (...a) => { let h = 2166136261; for (const v of a) { h ^= Math.floor(v * 1000) + 0x9e3779b9; h = Math.imul(h, 16777619); } return ((h ^ h >>> 15) >>> 0) / 4294967296; };
 const rgba = (hex, a) => { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${n >> 8 & 255},${n & 255},${a})`; };
 const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
-let C = null, SEAL = null, TITLE = null, TITLE_SZ = null, SUNCV = null, GLINT = null, SEAL_GLOW = null, FIT = null;
+let C = null, ART = null, SEAL = null, TITLE = null, TITLE_SZ = null, SUNCV = null, GLINT = null, SEAL_GLOW = null, FIT = null;
 const SC = mk(W, H), sctx = SC.getContext('2d', { willReadFrequently: true });
 const SEAL_S = 600 / 944;                 // seal scale so the artwork's visible height is 600 px (source bbox x 99-912, y 47-991)
 const SEAL_CX = 505.5, SEAL_CY = 519;
@@ -62,94 +63,245 @@ function buildTitle() {
 }
 let TBASE = null;
 
-/* ---------- sun layer (stripes cut with destination-out) ---------- */
-function drawSunLayer(R, t) {
+/* ---------- sun disc (plain, no stripes: a dusk sun over the avenue) ---------- */
+function drawSunLayer(R) {
   const c = SUNCV.getContext('2d'), S = SUNCV.width, cx = S / 2, cy = S / 2;
   c.clearRect(0, 0, S, S);
   const g = c.createLinearGradient(0, cy - R, 0, cy + R);
-  g.addColorStop(0, K.blush); g.addColorStop(.24, K.vio); g.addColorStop(.7, K.plum); g.addColorStop(1, K.royal);
+  g.addColorStop(0, K.blush); g.addColorStop(.3, K.vio); g.addColorStop(.78, K.plum); g.addColorStop(1, K.royal);
   c.fillStyle = g; c.beginPath(); c.arc(cx, cy, R, 0, Math.PI * 2); c.fill();
-  c.globalCompositeOperation = 'destination-out'; c.fillStyle = '#000';
-  const ph = (t * 0.32) % 1;
-  for (let k = 0; k < 9; k++) {
-    const u = (k + ph) / 9, y = cy + R * (-0.14 + 1.12 * u ** 1.1), th = 5 + 34 * u ** 1.4;
-    c.fillRect(cx - R - 4, y, 2 * R + 8, th);
-  }
-  c.globalCompositeOperation = 'source-over';
 }
-
-/* ---------- scene ---------- */
-function ridge(y0, amp, seed, par, camX, stroke, fill, a) {
-  ctx_ = sctx; const pts = [];
-  for (let x = -60; x <= W + 60; x += 36) {
-    const xs = x * 0.0045 + seed + camX * par;
-    const h = amp * (0.55 * Math.abs(Math.sin(xs * 1.7 + 0.6)) + 0.3 * Math.abs(Math.sin(xs * 3.9 + 1.3)) + 0.15 * Math.sin(xs * 7.1) ** 2);
-    pts.push([x, y0 - h]);
-  }
-  ctx_.beginPath(); ctx_.moveTo(pts[0][0], y0 + 2); pts.forEach(p => ctx_.lineTo(p[0], p[1])); ctx_.lineTo(pts[pts.length - 1][0], y0 + 2); ctx_.closePath();
-  ctx_.fillStyle = fill; ctx_.fill();
-  // wireframe mesh: verticals + crossing diagonals
-  ctx_.lineWidth = 1.2; ctx_.strokeStyle = rgba(stroke, a * 0.45); ctx_.beginPath();
-  pts.forEach((p, i) => { ctx_.moveTo(p[0], p[1]); ctx_.lineTo(p[0], y0); if (i % 2 === 0 && i + 2 < pts.length) { ctx_.moveTo(p[0], p[1]); ctx_.lineTo(pts[i + 2][0], y0); } }); ctx_.stroke();
-  ctx_.lineWidth = 6; ctx_.strokeStyle = rgba(stroke, a * 0.12); ctx_.beginPath(); pts.forEach((p, i) => i ? ctx_.lineTo(p[0], p[1]) : ctx_.moveTo(p[0], p[1])); ctx_.stroke();
-  ctx_.lineWidth = 2.4; ctx_.strokeStyle = rgba(stroke, a); ctx_.beginPath(); pts.forEach((p, i) => i ? ctx_.lineTo(p[0], p[1]) : ctx_.moveTo(p[0], p[1])); ctx_.stroke();
-}
-let ctx_;
-
-function skyline(a, camX) {
-  if (a <= 0.01) return;
-  const c = sctx; c.save(); c.globalAlpha = a;
-  const rim = () => { c.strokeStyle = rgba(K.vio, .55); c.lineWidth = 2; c.stroke(); };
-  // Capitol (left)
-  { const x = 300 - camX * 14, y = HZ; c.fillStyle = K.void;
-    c.beginPath(); c.rect(x - 190, y - 56, 380, 56); c.fill(); rim();
-    c.beginPath(); c.rect(x - 90, y - 90, 180, 36); c.fill(); rim();
-    c.beginPath(); c.rect(x - 52, y - 142, 104, 54); c.fill(); rim();
-    c.beginPath(); c.ellipse(x, y - 142, 56, 74, 0, Math.PI, 0); c.fill(); rim();
-    c.beginPath(); c.rect(x - 11, y - 238, 22, 24); c.fill(); rim();
-    c.beginPath(); c.moveTo(x - 7, y - 238); c.lineTo(x, y - 262); c.lineTo(x + 7, y - 238); c.closePath(); c.fill(); rim();
-    c.strokeStyle = rgba(K.plum, .9); c.lineWidth = 3; c.beginPath(); for (let i = -170; i <= 170; i += 17) { c.moveTo(x + i, y - 52); c.lineTo(x + i, y - 8); } c.stroke(); }
-  // Washington Monument (right)
-  { const x = 1648 - camX * 10, y = HZ; c.fillStyle = K.void;
-    c.beginPath(); c.moveTo(x - 22, y); c.lineTo(x - 13, y - 330); c.lineTo(x, y - 372); c.lineTo(x + 13, y - 330); c.lineTo(x + 22, y); c.closePath(); c.fill(); rim();
-    c.strokeStyle = rgba(K.vio, .9); c.shadowColor = K.vio; c.shadowBlur = 12; c.beginPath(); c.arc(x, y - 376, 3, 0, 7); c.fillStyle = K.vio; c.fill(); c.shadowBlur = 0; }
-  c.restore();
-}
-
-function ground(t, camX) {
-  const c = sctx;
-  const gg = c.createLinearGradient(0, HZ, 0, H); gg.addColorStop(0, K.elev); gg.addColorStop(.12, K.card); gg.addColorStop(1, K.void);
-  c.fillStyle = gg; c.fillRect(0, HZ, W, H - HZ);
-  const d = TRAVEL(t), fr = d - Math.floor(d);
-  c.save(); c.beginPath(); c.rect(0, HZ, W, H - HZ); c.clip(); c.globalCompositeOperation = 'lighter'; c.lineCap = 'round';
-  const hl = [];                                                         // horizontal lines (z-spaced) and vertical rays
-  for (let k = 0; k < 70; k++) { const z = k + 1 - fr; if (z < 0.28) continue; hl.push([HZ + 300 / z, Math.max(0, 1 - z / 52)]); }
-  const vl = []; for (let j = -40; j <= 40; j++) { const X = j * 0.28 - camX; vl.push([960 + X * 440 * (1 + 0.0), Math.max(0, 1 - Math.abs(j) / 40)]); }
-  const passes = [[15, .07], [6, .17], [2, 1]];
-  for (const [lw, al] of passes) {
-    c.lineWidth = lw;
-    c.beginPath(); for (const [y, a] of hl) { if (a <= 0.02) continue; c.moveTo(0, y); c.lineTo(W, y); }
-    c.strokeStyle = rgba(K.vio, al * 0.9); c.stroke();
-    c.beginPath(); for (const [xb] of vl) { c.moveTo(960, HZ); c.lineTo(960 + (xb - 960) * 1.0, H); }
-    c.strokeStyle = rgba(K.vio, al * 0.8); c.stroke();
-  }
-  c.restore();
-  // fade lines into the horizon haze
-  const hz = c.createLinearGradient(0, HZ, 0, HZ + 150); hz.addColorStop(0, rgba(K.elev, 1)); hz.addColorStop(1, rgba(K.elev, 0));
-  c.fillStyle = hz; c.fillRect(0, HZ, W, 150);
-}
-
-function drawSun(t, sunX, sunY, R, glowA) {
+function drawSun(sunX, sunY, R, glowA, clipHz, alpha = 1) {
   const c = sctx;
   c.save(); c.globalCompositeOperation = 'lighter';
-  const gl = c.createRadialGradient(sunX, sunY, R * 0.6, sunX, sunY, R * 2.1); gl.addColorStop(0, rgba(K.vio, .34 * glowA)); gl.addColorStop(.5, rgba(K.plum, .22 * glowA)); gl.addColorStop(1, rgba(K.plum, 0));
-  c.fillStyle = gl; c.fillRect(0, 0, W, HZ + 5); c.restore();
-  drawSunLayer(R, t);
-  c.save(); c.beginPath(); c.rect(0, 0, W, HZ); c.clip(); c.drawImage(SUNCV, sunX - SUNCV.width / 2, sunY - SUNCV.height / 2); c.restore();
-  // reflection glow on the grid
-  c.save(); c.globalCompositeOperation = 'lighter'; c.translate(sunX, HZ); c.scale(1, 0.18);
-  const rg = c.createRadialGradient(0, 0, 0, 0, 0, R * 1.5); rg.addColorStop(0, rgba(K.vio, .36 * glowA)); rg.addColorStop(1, rgba(K.vio, 0));
-  c.fillStyle = rg; c.fillRect(-R * 1.5, 0, R * 3, R * 1.5); c.restore();
+  const gl = c.createRadialGradient(sunX, sunY, R * 0.6, sunX, sunY, R * 2.1); gl.addColorStop(0, rgba(K.vio, .34 * glowA * alpha)); gl.addColorStop(.5, rgba(K.plum, .22 * glowA * alpha)); gl.addColorStop(1, rgba(K.plum, 0));
+  c.fillStyle = gl; c.fillRect(0, 0, W, clipHz ? HZ + 5 : H); c.restore();
+  drawSunLayer(R); c.save(); if (clipHz) { c.beginPath(); c.rect(0, 0, W, HZ); c.clip(); } c.globalAlpha = alpha; c.drawImage(SUNCV, sunX - SUNCV.width / 2, sunY - SUNCV.height / 2); c.restore();
+}
+
+/* ---------- the go-go groove (same pattern and kinds as audio.py): drives speakers, drum heads, EQ ---------- */
+const PAT = 'x.xx.x..x.xx.x.x', KINDS = ['low', 'open', 'slap', 'open', 'slap', 'low', 'open', 'slap'];
+function groove(t) {
+  const st = 60 / C.bpm / 4, pre = C.drop - 8 * st; let big = 0, small = 0;
+  const ph = (t * C.bpm / 60) % 1, beat = Math.exp(-ph * 6) * 0.3;
+  if (t < pre) return { big, small, beat };
+  const n = Math.floor((t - C.drop) / st);
+  for (let j = n; j > n - 7 && j >= -8; j--) {
+    const k = ((j % 16) + 16) % 16, bar = Math.floor(j / 16);
+    if (PAT[k] !== 'x') continue;
+    const age = t - (C.drop + j * st); if (age < 0) continue;
+    const e = Math.exp(-age / 0.085) * (j < 0 ? 0.55 : 1), kind = KINDS[(((bar * 3 + k) % 8) + 8) % 8];
+    if (kind === 'low' || kind === 'open') big = Math.max(big, e); else small = Math.max(small, e);
+  }
+  return { big, small, beat };
+}
+
+/* ---------- DC avenue: one-point perspective, row houses, parked cars, sidewalks, streetlights ---------- */
+const F = 900, EYE = 1.6, XW = 8, XC = 5.4, LOT = 3.4, ZN = 2.6, ZF = 80;
+const P = (X, Y, z) => [960 + X * F / z, HZ + (EYE - Y) * F / z];
+const mixc = (a, b, u) => { const A = parseInt(a.slice(1), 16), B = parseInt(b.slice(1), 16), m = s => Math.round(lerp(A >> s & 255, B >> s & 255, u)); return `rgb(${m(16)},${m(8)},${m(0)})`; };
+const quad = (c, pts) => { c.beginPath(); c.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) c.lineTo(pts[i][0], pts[i][1]); c.closePath(); };
+const fogAt = z => clamp((z - 12) / 64) ** 0.85 * 0.88;
+const wquad = (s, ya, yb, za, zb) => [P(s * XW, ya, za), P(s * XW, ya, zb), P(s * XW, yb, zb), P(s * XW, yb, za)];
+
+function planeText(c, txt, s, ya, yb, za, zb, col, fg) {
+  const [zA, zB] = s < 0 ? [za, zb] : [zb, za];
+  const p0 = P(s * XW, ya, zA), p1 = P(s * XW, ya, zB), pt = P(s * XW, yb, zA);
+  c.save(); c.font = '600 100px GGRBarlow'; c.letterSpacing = '8px'; const w = c.measureText(txt).width;
+  c.transform((p1[0] - p0[0]) / w, (p1[1] - p0[1]) / w, (p0[0] - pt[0]) / 70, (p0[1] - pt[1]) / 70, p0[0], p0[1]);
+  c.textBaseline = 'alphabetic'; c.lineJoin = 'round'; c.globalCompositeOperation = 'lighter';
+  c.lineWidth = 26; c.strokeStyle = rgba(col, .16 * (1 - fg)); c.strokeText(txt, 0, 0);
+  c.lineWidth = 12; c.strokeStyle = rgba(col, .38 * (1 - fg)); c.strokeText(txt, 0, 0);
+  c.fillStyle = mixc(K.blush, K.elev, fg); c.fillText(txt, 0, 0); c.restore();
+}
+
+function box(c, s, xi, xo, ya, yb, za, zb, side, top, front) {
+  if (yb < EYE) { c.fillStyle = top; quad(c, [P(s * xi, yb, za), P(s * xo, yb, za), P(s * xo, yb, zb), P(s * xi, yb, zb)]); c.fill(); }
+  c.fillStyle = side; quad(c, [P(s * xi, ya, za), P(s * xi, ya, zb), P(s * xi, yb, zb), P(s * xi, yb, za)]); c.fill();
+  c.fillStyle = front; quad(c, [P(s * xi, ya, za), P(s * xo, ya, za), P(s * xo, yb, za), P(s * xi, yb, za)]); c.fill();
+}
+
+function car(c, n, s, D) {
+  const r = hash(n, s * 5 + 3, 77); if (r < 0.42) return;
+  const z0 = n * LOT - D + 0.25 + 0.3 * hash(n, s, 78), z1 = z0 + 3.0; if (z0 < 1.6 || z0 > ZF) return;
+  const fg = fogAt(z0), pal = [K.royal, K.plum, K.elev, K.card], base = pal[Math.floor(r * 40) % 4];
+  const body = mixc(mixc(base, K.void, .55), K.elev, fg), top = mixc(mixc(base, K.void, .3), K.elev, fg), fr = mixc(K.void, K.elev, fg);
+  box(c, s, 3.1, 5.1, 0.28, 0.98, z0, z1, body, top, fr);
+  box(c, s, 3.5, 4.8, 0.98, 1.5, z0 + 0.5, z1 - 0.55, mixc(K.void, K.card, .4 + .5 * fg), top, fr);
+  // lights on the near end
+  c.fillStyle = mixc(K.vio, K.elev, fg); for (const x of [3.3, 4.9]) { quad(c, [P(s * (x - 0.2), .55, z0), P(s * (x + 0.2), .55, z0), P(s * (x + 0.2), .75, z0), P(s * (x - 0.2), .75, z0)]); c.fill(); }
+  c.strokeStyle = rgba(K.vio, .45 * (1 - fg)); c.lineWidth = 1.6; c.beginPath(); const a = P(s * 3.1, .98, z0), b = P(s * 3.1, .98, z1); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke();
+}
+
+function house(c, n, s, D, t) {
+  const z0 = n * LOT - D, z1 = z0 + LOT; if (z1 < 1.0 || z0 > ZF) return;
+  const za = Math.max(z0, 0.9), r1 = hash(n, s * 3 + 1), r2 = hash(n, s * 3 + 2), fg = fogAt(z0), hz = K.elev;
+  const Hh = 8.6 + 2.8 * r1, base = mixc(K.void, K.royal, 0.3 + 0.42 * r2), Zu = u => Math.max(z0 + u * LOT, 0.9);
+  c.fillStyle = mixc(base, hz, fg); quad(c, wquad(s, 0, Hh, za, z1)); c.fill();
+  // brick courses
+  c.strokeStyle = rgba(K.void, .22 * (1 - fg)); c.lineWidth = 1; c.beginPath();
+  for (let y = 0.6; y < Hh; y += 0.6) { const a = P(s * XW, y, za), b = P(s * XW, y, z1); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); } c.stroke();
+  // cornice + roof rim
+  c.fillStyle = mixc(K.plum, hz, fg + .1); quad(c, wquad(s, Hh - 0.55, Hh, za, z1)); c.fill();
+  c.strokeStyle = rgba(K.vio, .5 * (1 - fg)); c.lineWidth = 2; c.beginPath(); { const a = P(s * XW, Hh, za), b = P(s * XW, Hh, z1); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); } c.stroke();
+  const win = (ua, ub, ya, yb, key) => {
+    const r = hash(n, s, key); let col;
+    if (r > .46) { const f = r > .94 ? (Math.floor(t * 10 + r * 9) % 2 ? K.vio : K.muted) : (r > .8 ? mixc(K.lav, K.vio, .35) : mixc(K.vio, K.plum, .45)); col = mixc(f, hz, fg * .85); }
+    else col = mixc(K.void, K.card, .5 + .5 * fg);
+    c.fillStyle = col; quad(c, [P(s * XW, ya, Zu(ua)), P(s * XW, ya, Zu(ub)), P(s * XW, yb, Zu(ub)), P(s * XW, yb, Zu(ua))]); c.fill();
+    c.strokeStyle = rgba(K.plum, .6 * (1 - fg)); c.lineWidth = 1.3; c.stroke();
+  };
+  const floors = Hh > 10.2 ? [[2.9, 4.6], [5.7, 7.4], [8.3, 9.8]] : [[2.9, 4.6], [5.9, 7.6]];
+  floors.forEach(([ya, yb], i) => { win(.12, .38, ya, yb, 10 + i * 2); win(.62, .88, ya, yb, 11 + i * 2); });
+  // ground floor: door + window
+  c.fillStyle = mixc(K.void, K.card, .35 + .4 * fg); quad(c, [P(s * XW, 0, Zu(.08)), P(s * XW, 0, Zu(.32)), P(s * XW, 2.5, Zu(.32)), P(s * XW, 2.5, Zu(.08))]); c.fill();
+  c.strokeStyle = rgba(K.vio, .35 * (1 - fg)); c.lineWidth = 1.4; c.stroke();
+  win(.58, .9, 0.8, 2.2, 30);
+  // stoop steps
+  c.strokeStyle = rgba(K.lav, .25 * (1 - fg)); c.lineWidth = 1.6; c.beginPath();
+  for (let k = 0; k < 3; k++) { const a = P(s * (XW - 0.25 - k * 0.4), 0.2 + k * -0.0, Zu(.04)), b = P(s * (XW - 0.25 - k * 0.4), 0.2, Zu(.36)); c.moveTo(a[0], a[1] + k * 2); c.lineTo(b[0], b[1] + k * 2); } c.stroke();
+  // shop signs
+  if (s < 0 && ((n % 8) + 8) % 8 === 2) { sign(c, 'RECORDS', s, za, z1, fg, Zu); }
+  if (s > 0 && ((n % 9) + 9) % 9 === 4) { sign(c, 'CARRY OUT', s, za, z1, fg, Zu); }
+}
+function sign(c, txt, s, za, z1, fg, Zu) {
+  const ya = 5.6, yb = 6.9, a = Zu(.06), b = Zu(.94);
+  c.fillStyle = mixc(K.void, K.card, .3 + fg * .6); quad(c, wquad(s, ya - .25, yb + .25, a, b)); c.fill();
+  c.strokeStyle = rgba(K.vio, .8 * (1 - fg)); c.lineWidth = 2; c.stroke();
+  planeText(c, txt, s, ya, yb, a + .15, b - .15, K.vio, fg);
+}
+
+function lamp(c, z, s) {
+  if (z < 7 || z > ZF) return;
+  const fg = fogAt(z), foot = P(s * 5.9, 0, z), top = P(s * 5.9, 7.4, z), lp = P(s * 4.5, 7.2, z), wd = Math.max(1.2, 0.2 * F / z);
+  c.strokeStyle = mixc(K.royal, K.elev, fg); c.lineWidth = wd; c.lineCap = 'round'; c.beginPath(); c.moveTo(foot[0], foot[1]); c.lineTo(top[0], top[1]); c.lineTo(lp[0], lp[1] - wd * .2); c.stroke();
+  c.save(); c.globalCompositeOperation = 'lighter';
+  const r = Math.max(12, 3.6 * F / z), g = c.createRadialGradient(lp[0], lp[1], 0, lp[0], lp[1], r);
+  g.addColorStop(0, rgba(K.blush, .85 * (1 - fg * .5))); g.addColorStop(.12, rgba(K.vio, .5 * (1 - fg * .5))); g.addColorStop(1, rgba(K.vio, 0)); c.fillStyle = g; c.fillRect(lp[0] - r, lp[1] - r, 2 * r, 2 * r);
+  const gp = P(s * 4.5, 0, z), rx = 3.4 * F / z; c.translate(gp[0], gp[1]); c.scale(1, .18); const g2 = c.createRadialGradient(0, 0, 0, 0, 0, rx); g2.addColorStop(0, rgba(K.vio, .32 * (1 - fg))); g2.addColorStop(1, rgba(K.vio, 0)); c.fillStyle = g2; c.fillRect(-rx, -rx, 2 * rx, 2 * rx);
+  c.restore();
+}
+
+function avenue(t, D) {
+  const c = sctx;
+  const g = c.createLinearGradient(0, HZ, 0, H); g.addColorStop(0, K.elev); g.addColorStop(.25, K.card); g.addColorStop(1, K.void);
+  c.fillStyle = g; c.fillRect(0, HZ, W, H - HZ);
+  for (const s of [-1, 1]) { c.fillStyle = rgba(K.royal, .55); quad(c, [P(s * XC, 0, ZN * .5), P(s * XC, 0, 500), P(s * XW, 0, 500), P(s * XW, 0, ZN * .5)]); c.fill(); }
+  c.strokeStyle = rgba(K.vio, .5); c.lineWidth = 2; c.beginPath();
+  for (const s of [-1, 1]) { const a = P(s * XC, 0, ZN * .5), b = P(s * XC, 0, 500); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); } c.stroke();
+  // sidewalk joints and road dashes move with the camera (the speed cue)
+  c.strokeStyle = rgba(K.void, .55); c.lineWidth = 1.5; c.beginPath();
+  for (let k = 0; k < 50; k++) { const z = (k * 2 - (D % 2)) + 0; if (z < ZN * .6) continue; for (const s of [-1, 1]) { const a = P(s * XC, 0, z), b = P(s * XW, 0, z); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); } } c.stroke();
+  for (let k = 0; k < 24; k++) { const za = k * 6 - (D % 6), zb = za + 2.6; if (zb < ZN * .6) continue; const fg = fogAt(za);
+    c.fillStyle = rgba(K.blush, .8 * (1 - fg)); quad(c, [P(-0.1, 0, Math.max(za, .9)), P(0.1, 0, Math.max(za, .9)), P(0.1, 0, zb), P(-0.1, 0, zb)]); c.fill(); }
+  const hzf = c.createLinearGradient(0, HZ, 0, HZ + 160); hzf.addColorStop(0, rgba(K.elev, .95)); hzf.addColorStop(1, rgba(K.elev, 0)); c.fillStyle = hzf; c.fillRect(0, HZ, W, 160);
+  const nS = Math.floor(D / LOT), nE = nS + Math.ceil(ZF / LOT) + 1;
+  for (let n = nE; n >= nS - 1; n--) for (const s of [-1, 1]) { house(c, n, s, D, t); car(c, n, s, D); }
+  for (let k = Math.floor(D / 11) + 8; k >= Math.floor(D / 11) - 1; k--) { lamp(c, k * 11 - D, -1); lamp(c, k * 11 + 5.5 - D, 1); }
+}
+
+function landmarks() {
+  const c = sctx, rim = () => { c.strokeStyle = rgba(K.vio, .5); c.lineWidth = 1.6; c.stroke(); };
+  c.save(); c.fillStyle = mixc(K.void, K.elev, .45);
+  // Capitol at the end of the avenue
+  { const x = 960, y = HZ + 4, k = 0.5; c.save(); c.translate(x, y); c.scale(k, k);
+    c.beginPath(); c.rect(-190, -56, 380, 56); c.fill(); rim(); c.beginPath(); c.rect(-90, -90, 180, 36); c.fill(); rim(); c.beginPath(); c.rect(-52, -142, 104, 54); c.fill(); rim();
+    c.beginPath(); c.ellipse(0, -142, 56, 74, 0, Math.PI, 0); c.fill(); rim(); c.beginPath(); c.rect(-11, -238, 22, 24); c.fill(); rim();
+    c.beginPath(); c.moveTo(-7, -238); c.lineTo(0, -262); c.lineTo(7, -238); c.closePath(); c.fill(); rim(); c.restore(); }
+  // Washington Monument above the roofline
+  { const x = 1262, y = HZ, k = 1.12; c.beginPath(); c.moveTo(x - 22 * k, y); c.lineTo(x - 13 * k, y - 330 * k); c.lineTo(x, y - 372 * k); c.lineTo(x + 13 * k, y - 330 * k); c.lineTo(x + 22 * k, y); c.closePath(); c.fill(); rim();
+    c.save(); c.shadowColor = K.vio; c.shadowBlur = 12; c.fillStyle = K.vio; c.beginPath(); c.arc(x, y - 378 * k, 3.5, 0, 7); c.fill(); c.restore(); }
+  c.restore();
+}
+
+/* ---------- foreground: the stoop (wall, handbills, boombox) and the congas ---------- */
+function duo(img, w, h) { const cv_ = mk(w, h), g = cv_.getContext('2d'); const ar = img.width / img.height, ca = w / h; let sw = img.width, sh = img.height, sx = 0, sy = 0;
+  if (ar > ca) { sw = img.height * ca; sx = (img.width - sw) / 2; } else { sh = img.width / ca; sy = (img.height - sh) / 2; }
+  g.filter = 'grayscale(1) contrast(1.25)'; g.drawImage(img, sx, sy, sw, sh, 0, 0, w, h); g.filter = 'none';
+  g.globalCompositeOperation = 'multiply'; g.fillStyle = K.lav; g.fillRect(0, 0, w, h);
+  g.globalCompositeOperation = 'screen'; g.fillStyle = rgba(K.royal, .45); g.fillRect(0, 0, w, h); return cv_; }
+
+function flyer(c, x, y, rot, art, sel, t) {
+  c.save(); c.translate(x, y); c.rotate(rot); c.shadowColor = 'rgba(13,7,16,.7)'; c.shadowBlur = 14; c.shadowOffsetY = 6;
+  c.fillStyle = K.blush; c.fillRect(0, 0, 152, 196); c.shadowBlur = 0; c.shadowOffsetY = 0;
+  c.drawImage(art, 9, 9, 134, 80);
+  c.fillStyle = K.royal; c.fillRect(9, 102, 90, 9); c.fillStyle = K.plum; c.fillRect(9, 118, 134, 5); c.fillRect(9, 130, 118, 5); c.fillRect(9, 142, 126, 5);
+  c.fillStyle = K.void; c.fillRect(9, 160, 56, 20); c.fillStyle = K.blush; c.fillRect(14, 167, 30, 4);
+  c.fillStyle = rgba(K.lav, .7); c.fillRect(48, -10, 56, 22); c.restore();
+}
+
+function boombox(c, cx, cy, t, G) {
+  const lvl = clamp(G.big * .9 + G.small * .6 + G.beat), w = 440, h = 240;
+  c.save(); c.translate(cx, cy); c.lineCap = 'round'; c.lineJoin = 'round';
+  c.strokeStyle = K.muted; c.lineWidth = 4; c.beginPath(); c.moveTo(150, -h / 2); c.lineTo(255, -h / 2 - 150); c.stroke(); c.fillStyle = K.blush; c.beginPath(); c.arc(255, -h / 2 - 150, 7, 0, 7); c.fill();
+  c.strokeStyle = K.plum; c.lineWidth = 18; c.beginPath(); c.moveTo(-135, -h / 2 + 4); c.lineTo(-112, -h / 2 - 56); c.lineTo(112, -h / 2 - 56); c.lineTo(135, -h / 2 + 4); c.stroke();
+  c.strokeStyle = rgba(K.blush, .3); c.lineWidth = 3; c.beginPath(); c.moveTo(-108, -h / 2 - 62); c.lineTo(108, -h / 2 - 62); c.stroke();
+  const bg = c.createLinearGradient(0, -h / 2, 0, h / 2); bg.addColorStop(0, K.elev); bg.addColorStop(1, K.card);
+  c.shadowColor = 'rgba(13,7,16,.8)'; c.shadowBlur = 24; c.shadowOffsetY = 10; c.fillStyle = bg; c.beginPath(); c.roundRect(-w / 2, -h / 2, w, h, 24); c.fill(); c.shadowBlur = 0; c.shadowOffsetY = 0;
+  c.lineWidth = 5; c.strokeStyle = K.royal; c.stroke(); c.strokeStyle = rgba(K.blush, .25); c.lineWidth = 2; c.beginPath(); c.moveTo(-w / 2 + 24, -h / 2 + 3); c.lineTo(w / 2 - 24, -h / 2 + 3); c.stroke();
+  for (const sx of [-148, 148]) {
+    c.save(); c.translate(sx, 6);
+    c.save(); c.globalCompositeOperation = 'lighter'; const gl = c.createRadialGradient(0, 0, 40, 0, 0, 130); gl.addColorStop(0, rgba(K.vio, .5 * lvl)); gl.addColorStop(1, rgba(K.vio, 0)); c.fillStyle = gl; c.fillRect(-130, -130, 260, 260); c.restore();
+    c.fillStyle = K.void; c.beginPath(); c.arc(0, 0, 84, 0, 7); c.fill(); c.lineWidth = 6; c.strokeStyle = K.royal; c.stroke();
+    c.lineWidth = 3; c.strokeStyle = rgba(K.vio, .3 + .6 * lvl); c.beginPath(); c.arc(0, 0, 74, 0, 7); c.stroke();
+    const rc = 58 * (1 + .09 * lvl), cg = c.createRadialGradient(-10, -10, 4, 0, 0, rc); cg.addColorStop(0, K.plum); cg.addColorStop(1, K.card);
+    c.fillStyle = cg; c.beginPath(); c.arc(0, 0, rc, 0, 7); c.fill(); c.strokeStyle = rgba(K.blush, .25); c.lineWidth = 2; c.stroke();
+    c.fillStyle = K.royal; c.beginPath(); c.arc(0, 0, 18 * (1 + .12 * lvl), 0, 7); c.fill(); c.strokeStyle = rgba(K.blush, .45); c.stroke();
+    c.restore();
+  }
+  // cassette window with spinning reels
+  c.fillStyle = K.void; c.beginPath(); c.roundRect(-56, -96, 112, 62, 8); c.fill(); c.strokeStyle = K.royal; c.lineWidth = 3; c.stroke();
+  for (const rx of [-26, 26]) { c.save(); c.translate(rx, -65); c.rotate(t * 7 * (rx < 0 ? 1 : 1.15)); c.fillStyle = K.muted; c.beginPath(); c.arc(0, 0, 15, 0, 7); c.fill(); c.fillStyle = K.void;
+    for (let i = 0; i < 6; i++) { c.rotate(Math.PI / 3); c.fillRect(-2.2, -13, 4.4, 8); } c.beginPath(); c.arc(0, 0, 4, 0, 7); c.fill(); c.restore(); }
+  // EQ LEDs
+  for (let i = 0; i < 8; i++) { const hh = clamp(.14 + (.4 + .6 * lvl) * Math.abs(Math.sin(t * (3.1 + i * 1.37) + i * 1.9)) * (.55 + .45 * Math.sin(i * 2.1))) * 5.4;
+    for (let j = 0; j < 6; j++) { const on = j < hh; c.fillStyle = on ? (j > 3.4 ? K.blush : K.vio) : rgba(K.royal, .45); c.fillRect(-52 + i * 14, 38 - j * 10, 10, 7); } }
+  // tuner dial
+  c.fillStyle = K.void; c.beginPath(); c.roundRect(-56, 62, 112, 30, 6); c.fill(); c.strokeStyle = rgba(K.muted, .6); c.lineWidth = 1.5; c.beginPath();
+  for (let i = 0; i <= 14; i++) { c.moveTo(-48 + i * 6.9, 82); c.lineTo(-48 + i * 6.9, i % 2 ? 76 : 70); } c.stroke();
+  const nx = -48 + 96.6 * (.5 + .5 * Math.sin(t * .9 + .6)); c.strokeStyle = K.vio; c.lineWidth = 3; c.beginPath(); c.moveTo(nx, 66); c.lineTo(nx, 88); c.stroke();
+  c.restore();
+}
+
+function conga(c, cx, topY, h, wt, wb, pulse, t) {
+  const ry = wt * 0.17, botY = topY + h; c.save(); c.lineCap = 'round';
+  c.strokeStyle = K.plum; c.lineWidth = 9; c.beginPath(); c.moveTo(cx - wb * .42, botY - 30); c.lineTo(cx - wb * .95, 1070); c.moveTo(cx + wb * .42, botY - 30); c.lineTo(cx + wb * .95, 1070); c.stroke();
+  c.beginPath(); c.moveTo(cx - wt / 2, topY); c.bezierCurveTo(cx - wt * .64, topY + h * .35, cx - wb * .64, topY + h * .7, cx - wb / 2, botY); c.lineTo(cx + wb / 2, botY);
+  c.bezierCurveTo(cx + wb * .64, topY + h * .7, cx + wt * .64, topY + h * .35, cx + wt / 2, topY); c.closePath();
+  const g = c.createLinearGradient(cx - wt / 2, 0, cx + wt / 2, 0); g.addColorStop(0, K.card); g.addColorStop(.28, K.plum); g.addColorStop(.5, K.royal); g.addColorStop(.82, K.card); g.addColorStop(1, K.void);
+  c.fillStyle = g; c.fill(); c.lineWidth = 4; c.strokeStyle = K.void; c.stroke();
+  c.save(); c.clip(); c.strokeStyle = rgba(K.void, .5); c.lineWidth = 2; c.beginPath();
+  for (let i = 1; i < 7; i++) { const f = i / 7, xt = cx - wt / 2 + f * wt, xb = cx - wb / 2 + f * wb; c.moveTo(xt, topY); c.quadraticCurveTo((xt + xb) / 2 + (f - .5) * wt * .3, topY + h * .5, xb, botY); } c.stroke();
+  c.restore();
+  for (const u of [.12, .5, .9]) { const y = topY + h * u, w = lerp(wt, wb, u) + wt * .12 * Math.sin(Math.PI * u); c.strokeStyle = rgba(K.vio, u === .12 ? .85 : .4); c.lineWidth = u === .12 ? 5 : 3; c.beginPath(); c.ellipse(cx, y, w / 2, wt * .06, 0, 0, Math.PI); c.stroke(); }
+  c.save(); c.globalCompositeOperation = 'lighter'; const gl = c.createRadialGradient(cx, topY, 10, cx, topY, wt * .9); gl.addColorStop(0, rgba(K.vio, .55 * pulse)); gl.addColorStop(1, rgba(K.vio, 0)); c.fillStyle = gl; c.fillRect(cx - wt, topY - wt, 2 * wt, 2 * wt); c.restore();
+  const k = 1 + .045 * pulse;
+  c.fillStyle = K.plum; c.beginPath(); c.ellipse(cx, topY, wt / 2 + 5, ry + 3, 0, 0, 7); c.fill(); c.lineWidth = 5; c.strokeStyle = K.vio; c.stroke();
+  const hg = c.createRadialGradient(cx - wt * .12, topY - ry * .3, 4, cx, topY, wt / 2); hg.addColorStop(0, K.blush); hg.addColorStop(1, K.muted);
+  c.fillStyle = hg; c.beginPath(); c.ellipse(cx, topY, (wt / 2 - 8) * k, (ry - 4) * (k + .12 * pulse), 0, 0, 7); c.fill();
+  c.strokeStyle = rgba(K.royal, .5); c.lineWidth = 2; c.beginPath(); c.ellipse(cx, topY, (wt / 2 - 22) * k, (ry - 14) * k, 0, 0, 7); c.stroke();
+  c.restore();
+}
+
+function props(t, art) {
+  const c = sctx, [i0, i1] = C.props_in, [o0, o1] = C.props_out, pin = eb(inv(i0, i1, t), 1.5), pout = eio(inv(o0, o1, t));
+  if (t < i0 || t > o1) return;
+  const G = groove(t), offL = -(1 - clamp(pin, 0, 1.15)) * 640 - pout * 700, offR = (1 - clamp(pin, 0, 1.15)) * 640 + pout * 700;
+  // left: brick wall, handbills, boombox on the ledge
+  c.save(); c.translate(offL, 0);
+  c.shadowColor = 'rgba(13,7,16,.8)'; c.shadowBlur = 30; c.fillStyle = mixc(K.card, K.royal, .3); c.fillRect(-40, 560, 600, 520); c.shadowBlur = 0;
+  c.save(); c.beginPath(); c.rect(-40, 560, 600, 520); c.clip(); c.strokeStyle = rgba(K.void, .5); c.lineWidth = 2; c.beginPath();
+  for (let r = 0, y = 560; y < 1080; r++, y += 34) { c.moveTo(-40, y); c.lineTo(560, y); for (let x = -40 + (r % 2) * 40; x < 560; x += 80) { c.moveTo(x, y); c.lineTo(x, y + 34); } } c.stroke();
+  const wl = c.createLinearGradient(0, 560, 0, 1080); wl.addColorStop(0, rgba(K.void, .1)); wl.addColorStop(1, rgba(K.void, .6)); c.fillStyle = wl; c.fillRect(-40, 560, 600, 520); c.restore();
+  c.strokeStyle = rgba(K.vio, .55); c.lineWidth = 3; c.beginPath(); c.moveTo(-40, 561); c.lineTo(560, 561); c.stroke();
+  flyer(c, 20, 592, -0.07, art[0], 0, t); flyer(c, 186, 612, 0.05, art[1], 1, t); flyer(c, 350, 590, -0.04, art[2], 2, t);
+  c.fillStyle = K.elev; c.fillRect(-40, 985, 600, 95); c.fillStyle = rgba(K.lav, .3); c.fillRect(-40, 985, 600, 3);
+  boombox(c, 262, 862 + 4 * Math.sin(t * Math.PI * 2 * C.bpm / 60) * (t >= C.drop ? 0.4 : 0.15) * 0 + 0, t, G);
+  c.restore();
+  // right: two congas
+  c.save(); c.translate(offR, 0);
+  conga(c, 1450, 700, 330, 190, 140, G.big, t); conga(c, 1688, 748, 290, 160, 120, G.small, t);
+  c.restore();
 }
 
 function osd(t) {
@@ -235,7 +387,7 @@ function endCard(t) {
   const c = sctx, [s0, s1] = C.seal;
   // seal
   if (t >= s0) {
-    const p = inv(s0, s1, t), k = lerp(0.55, 1, eb(p, 1.7)), a = clamp(p * 2.2), bt = (t * C.bpm / 60) % 1, pulse = t > s1 ? 1 + 0.012 * Math.exp(-bt * 5) : 1;
+    const p = inv(s0, s1, t), k = lerp(0.55, 1, eb(p, 1.7)), a = clamp(p * 2.2), bt = (t * C.bpm / 60) % 1, gv = groove(t), pulse = t > s1 ? 1 + 0.014 * Math.max(gv.big, gv.small) : 1;
     c.save(); c.translate(SEAL_X(t), 484); c.scale(k * pulse, k * pulse); c.globalAlpha = a;
     c.globalCompositeOperation = 'lighter'; c.globalAlpha = a * (0.7 + 0.2 * Math.exp(-bt * 4)); c.drawImage(SEAL_GLOW, -SEAL_GLOW.width / 2, -SEAL_GLOW.height / 2);
     c.globalCompositeOperation = 'source-over'; c.globalAlpha = a;
@@ -263,21 +415,24 @@ function drawScene(t) {
   // camera shake on the slam
   const su = (t - C.slam) / 0.5, shk = su >= 0 && su < 1 ? (1 - su) ** 2 * 16 : 0;
   c.save(); if (shk) c.translate((hash(Math.floor(t * 60), 1) - .5) * shk, (hash(Math.floor(t * 60), 2) - .5) * shk);
-  const camX = 0.22 * Math.sin(t * 0.7) * (1 - inv(5.6, 7, t) * 0.8);
-  // sky
-  const sg = c.createLinearGradient(0, 0, 0, HZ); sg.addColorStop(0, K.void); sg.addColorStop(.55, K.card); sg.addColorStop(1, K.elev); c.fillStyle = sg; c.fillRect(-40, -40, W + 80, HZ + 40);
-  for (let i = 0; i < 210; i++) { const x = hash(i, 1) * W, y = Math.pow(hash(i, 2), 1.4) * (HZ - 60), tw = .55 + .45 * Math.sin(t * (1.5 + hash(i, 3) * 3) + hash(i, 4) * 6.28), r = .8 + hash(i, 5) * 1.6;
-    c.fillStyle = rgba(hash(i, 6) > .6 ? K.blush : K.muted, tw * (.35 + .5 * hash(i, 7))); c.fillRect(x, y, r, r); }
-  // sun
+  const D = TRAVEL(t) * 0.8;
+  c.translate(0, 2.2 * Math.sin(t * 9.5) * inv(0.3, 1.2, t) * (1 - inv(5.6, 7, t)));          // handheld dolly bob
+  // dusk sky
+  const sg = c.createLinearGradient(0, 0, 0, HZ); sg.addColorStop(0, K.void); sg.addColorStop(.5, K.card); sg.addColorStop(1, mixc(K.elev, K.royal, .35)); c.fillStyle = sg; c.fillRect(-40, -40, W + 80, HZ + 40);
+  for (let i = 0; i < 120; i++) { const x = hash(i, 1) * W, y = Math.pow(hash(i, 2), 1.4) * (HZ - 160), tw = .55 + .45 * Math.sin(t * (1.5 + hash(i, 3) * 3) + hash(i, 4) * 6.28), r = .8 + hash(i, 5) * 1.5;
+    c.fillStyle = rgba(hash(i, 6) > .6 ? K.blush : K.muted, tw * (.3 + .45 * hash(i, 7))); c.fillRect(x, y, r, r); }
+  // sun (rises behind the avenue, then slides left to become the seal's halo)
   const mv = eio(inv(C.sun_move[0], C.sun_move[1], t)), R = lerp(330, 360, mv);
   const rise = eo(inv(C.sun_rise[0], C.sun_rise[1], t)), riseH = lerp(-R - 14, 170, rise);
   const sunX = lerp(960, 560, mv), sunY = HZ - riseH + lerp(0, 170 - 160, mv);
-  drawSun(t, sunX, sunY, R, 1);
-  ridge(HZ, 118, 2.1, 0.6, camX, K.muted, rgba(K.card, 1), 0.55);
-  ridge(HZ, 66, 5.4, 1.0, camX, K.vio, rgba(K.void, 1), 0.95);
-  skyline(lerp(1, 0.14, mv), camX);
-  ground(t, camX);
+  drawSun(sunX, sunY, R, 1, true, 1 - mv);
+  landmarks();
+  avenue(t, D);
+  props(t, ART);
   titleBlock(t); neon(t);
+  // end card: calm the street, bring the sun forward as the seal's halo
+  const dm = inv(C.sun_move[0], C.sun_move[1], t);
+  if (dm > 0) { c.fillStyle = rgba(K.void, .66 * dm); c.fillRect(-40, -40, W + 80, H + 80); drawSun(sunX, sunY, R, 1, false, .96 * dm); }
   endCard(t);
   ticker(t);
   c.restore();
@@ -322,7 +477,10 @@ window.renderAt = async (t) => { drawScene(t); vhs(t, Math.round(t * 30)); };
   C = await (await fetch('./cues.json')).json();
   SEAL = new Image(); SEAL.src = encodeURI('/assets/brands/gogoroyalty/logos/Go Go Royalty logo.png'); await SEAL.decode();
   await Promise.all([document.fonts.load('italic 900 200px "Playfair Display"', 'VINTAGE STATION Go-Go Royalty.com. 1977 – 2009 Stream free, 24 hours.'), document.fonts.load('italic 800 100px "Playfair Display"', '1977 – 2009'),
-    document.fonts.load('600 46px GGRBarlow', 'go-goroyalty.com 24/7 PLAY 00:00:00'), document.fonts.load('500 36px GGRBarlow', 'RARE ESSENCE · NEG')]);
+    document.fonts.load('600 46px GGRBarlow', 'go-goroyalty.com 24/7 PLAY 00:00:00'), document.fonts.load('500 36px GGRBarlow', 'RARE ESSENCE · NEG'), document.fonts.load('600 100px GGRBarlow', 'RECORDS CARRY OUT')]);
+  { const ld = async f => { const i = new Image(); i.src = encodeURI('/assets/brands/gogoroyalty/images/' + f); await i.decode(); return i; };
+    const [a, b, d] = await Promise.all([ld('Rae Essence logo.jpg'), ld('Backyard Band.png'), ld('Junkyard band logo.png')]);
+    ART = [duo(a, 134, 80), duo(b, 134, 80), duo(d, 134, 80)]; }
   TBASE = buildTitle();
   SUNCV = mk(Math.ceil(2 * 370 + 20), Math.ceil(2 * 370 + 20)); GLINT = mk(1800, 640);
   // seal halo: the artwork's own silhouette, tinted Vivid Violet and blurred (outside glow only; the mark itself is drawn untouched)
