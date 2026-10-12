@@ -1,0 +1,340 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Go-Go Royalty.com — Vintage Station</title>
+<link rel="stylesheet" href="/assets/fonts/fonts.css">
+<style>
+@font-face { font-family: 'GGRBarlow'; src: url('./fonts/barlow-condensed-latin-500-normal.woff2') format('woff2'); font-weight: 500; font-display: block; }
+@font-face { font-family: 'GGRBarlow'; src: url('./fonts/barlow-condensed-latin-600-normal.woff2') format('woff2'); font-weight: 600; font-display: block; }
+html,body{margin:0;padding:0;background:#0d0710;overflow:hidden;width:1920px;height:1080px}canvas{display:block}
+</style></head>
+<body><canvas id="c" width="1920" height="1080"></canvas>
+<script>
+/* Go-Go Royalty.com — "Vintage Station" (prompt 12-1, 80s synthwave / VHS).
+   A VHS tape locks in on a violet perspective grid, a striped sun rises behind wireframe mountains and the DC skyline
+   (Capitol, Washington Monument), a chrome VINTAGE STATION title slams in with 1977-2009 in neon, a 24-hour clock runs, and the sun
+   slides aside to become the halo of the real Go-Go Royalty seal for the end card. Pure function of t; timing from cues.json.
+   Brand: void #0d0710, Vivid Violet #b45cfd (single accent), Royal Purple / Deep Plum surfaces, Playfair Display Black Italic, Barlow Condensed, no greys. */
+const W = 1920, H = 1080, HZ = 640, cv = document.getElementById('c'), ctx = cv.getContext('2d', { willReadFrequently: true });
+const K = { void:'#0d0710', card:'#1a0d22', elev:'#241030', royal:'#5d306b', plum:'#6c3e7a', vio:'#b45cfd', wh:'#ffffff', blush:'#f4e8fe', muted:'#c4a8d4', lav:'#e9d3fc' };
+const clamp = (x, a = 0, b = 1) => x < a ? a : x > b ? b : x;
+const lerp = (a, b, u) => a + (b - a) * u;
+const inv = (a, b, x) => clamp((x - a) / (b - a));
+const eo = u => 1 - (1 - u) ** 3, eio = u => u < .5 ? 4 * u ** 3 : 1 - (-2 * u + 2) ** 3 / 2;
+const eb = (u, s = 1.9) => 1 + (s + 1) * (u - 1) ** 3 + s * (u - 1) ** 2;
+const hash = (...a) => { let h = 2166136261; for (const v of a) { h ^= Math.floor(v * 1000) + 0x9e3779b9; h = Math.imul(h, 16777619); } return ((h ^ h >>> 15) >>> 0) / 4294967296; };
+const rgba = (hex, a) => { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${n >> 8 & 255},${n & 255},${a})`; };
+const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+let C = null, SEAL = null, TITLE = null, TITLE_SZ = null, SUNCV = null, GLINT = null, SEAL_GLOW = null, FIT = null;
+const SC = mk(W, H), sctx = SC.getContext('2d', { willReadFrequently: true });
+const SEAL_S = 600 / 944;                 // seal scale so the artwork's visible height is 600 px (source bbox x 99-912, y 47-991)
+const SEAL_CX = 505.5, SEAL_CY = 519;
+
+/* ---------- camera travel: speed profile integrated once into a table (still a pure function of t) ---------- */
+const TRAVEL = (() => { const n = 2001, a = new Float64Array(n); let d = 0; const v = t => 1.0 + 4.2 * eo(inv(0.4, 3.6, t)) - 2.9 * eo(inv(5.6, 7.0, t));
+  for (let i = 1; i < n; i++) { d += v((i - 1) / 200) / 200; a[i] = d; } return t => { const x = clamp(t, 0, 10) * 200, i = Math.min(n - 2, Math.floor(x)); return lerp(a[i], a[i + 1], x - i); }; })();
+
+/* ---------- VHS noise table ---------- */
+const NZ = new Uint8Array(1 << 18); { let s = 12345; for (let i = 0; i < NZ.length; i++) { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; NZ[i] = s >>> 24; } }
+
+/* ---------- chrome title (cached once) ---------- */
+function buildTitle() {
+  const lines = ['VINTAGE', 'STATION'];
+  const t = mk(1800, 640), c = t.getContext('2d');
+  c.font = 'italic 900 200px "Playfair Display"'; const w0 = Math.max(...lines.map(s => c.measureText(s).width));
+  const size = Math.min(210, 200 * 1380 / w0); TITLE_SZ = size;
+  c.font = `italic 900 ${size}px "Playfair Display"`; c.textAlign = 'center'; c.textBaseline = 'alphabetic'; c.letterSpacing = '5px';
+  const base = [250, 250 + size * 1.04];
+  const cap = size * 0.72;
+  // neon halo
+  c.save(); c.shadowColor = K.vio; c.shadowBlur = 46; c.fillStyle = K.vio; lines.forEach((s, i) => c.fillText(s, 900, base[i])); c.restore();
+  // extrusion (deep plum -> elevated), down-right
+  for (let e = 14; e >= 1; e--) { c.fillStyle = e > 6 ? K.elev : K.royal; lines.forEach((s, i) => c.fillText(s, 900 + e * 0.9, base[i] + e * 1.1)); }
+  // chrome face
+  lines.forEach((s, i) => {
+    const g = c.createLinearGradient(0, base[i] - cap, 0, base[i] + size * 0.04);
+    g.addColorStop(0, '#ffffff'); g.addColorStop(.18, K.blush); g.addColorStop(.44, K.muted); g.addColorStop(.5, K.plum); g.addColorStop(.54, K.royal);
+    g.addColorStop(.7, K.vio); g.addColorStop(.88, K.lav); g.addColorStop(1, K.blush);
+    c.fillStyle = g; c.fillText(s, 900, base[i]);
+    c.lineWidth = 2.4; c.strokeStyle = 'rgba(255,255,255,.75)'; c.strokeText(s, 900, base[i]);
+  });
+  // bevel highlight: thin offset light edge on top-left
+  c.save(); c.globalCompositeOperation = 'source-atop'; c.fillStyle = 'rgba(255,255,255,.0)'; c.restore();
+  TITLE = t; return base;
+}
+let TBASE = null;
+
+/* ---------- sun layer (stripes cut with destination-out) ---------- */
+function drawSunLayer(R, t) {
+  const c = SUNCV.getContext('2d'), S = SUNCV.width, cx = S / 2, cy = S / 2;
+  c.clearRect(0, 0, S, S);
+  const g = c.createLinearGradient(0, cy - R, 0, cy + R);
+  g.addColorStop(0, K.blush); g.addColorStop(.24, K.vio); g.addColorStop(.7, K.plum); g.addColorStop(1, K.royal);
+  c.fillStyle = g; c.beginPath(); c.arc(cx, cy, R, 0, Math.PI * 2); c.fill();
+  c.globalCompositeOperation = 'destination-out'; c.fillStyle = '#000';
+  const ph = (t * 0.32) % 1;
+  for (let k = 0; k < 9; k++) {
+    const u = (k + ph) / 9, y = cy + R * (-0.14 + 1.12 * u ** 1.1), th = 5 + 34 * u ** 1.4;
+    c.fillRect(cx - R - 4, y, 2 * R + 8, th);
+  }
+  c.globalCompositeOperation = 'source-over';
+}
+
+/* ---------- scene ---------- */
+function ridge(y0, amp, seed, par, camX, stroke, fill, a) {
+  ctx_ = sctx; const pts = [];
+  for (let x = -60; x <= W + 60; x += 36) {
+    const xs = x * 0.0045 + seed + camX * par;
+    const h = amp * (0.55 * Math.abs(Math.sin(xs * 1.7 + 0.6)) + 0.3 * Math.abs(Math.sin(xs * 3.9 + 1.3)) + 0.15 * Math.sin(xs * 7.1) ** 2);
+    pts.push([x, y0 - h]);
+  }
+  ctx_.beginPath(); ctx_.moveTo(pts[0][0], y0 + 2); pts.forEach(p => ctx_.lineTo(p[0], p[1])); ctx_.lineTo(pts[pts.length - 1][0], y0 + 2); ctx_.closePath();
+  ctx_.fillStyle = fill; ctx_.fill();
+  // wireframe mesh: verticals + crossing diagonals
+  ctx_.lineWidth = 1.2; ctx_.strokeStyle = rgba(stroke, a * 0.45); ctx_.beginPath();
+  pts.forEach((p, i) => { ctx_.moveTo(p[0], p[1]); ctx_.lineTo(p[0], y0); if (i % 2 === 0 && i + 2 < pts.length) { ctx_.moveTo(p[0], p[1]); ctx_.lineTo(pts[i + 2][0], y0); } }); ctx_.stroke();
+  ctx_.lineWidth = 6; ctx_.strokeStyle = rgba(stroke, a * 0.12); ctx_.beginPath(); pts.forEach((p, i) => i ? ctx_.lineTo(p[0], p[1]) : ctx_.moveTo(p[0], p[1])); ctx_.stroke();
+  ctx_.lineWidth = 2.4; ctx_.strokeStyle = rgba(stroke, a); ctx_.beginPath(); pts.forEach((p, i) => i ? ctx_.lineTo(p[0], p[1]) : ctx_.moveTo(p[0], p[1])); ctx_.stroke();
+}
+let ctx_;
+
+function skyline(a, camX) {
+  if (a <= 0.01) return;
+  const c = sctx; c.save(); c.globalAlpha = a;
+  const rim = () => { c.strokeStyle = rgba(K.vio, .55); c.lineWidth = 2; c.stroke(); };
+  // Capitol (left)
+  { const x = 300 - camX * 14, y = HZ; c.fillStyle = K.void;
+    c.beginPath(); c.rect(x - 190, y - 56, 380, 56); c.fill(); rim();
+    c.beginPath(); c.rect(x - 90, y - 90, 180, 36); c.fill(); rim();
+    c.beginPath(); c.rect(x - 52, y - 142, 104, 54); c.fill(); rim();
+    c.beginPath(); c.ellipse(x, y - 142, 56, 74, 0, Math.PI, 0); c.fill(); rim();
+    c.beginPath(); c.rect(x - 11, y - 238, 22, 24); c.fill(); rim();
+    c.beginPath(); c.moveTo(x - 7, y - 238); c.lineTo(x, y - 262); c.lineTo(x + 7, y - 238); c.closePath(); c.fill(); rim();
+    c.strokeStyle = rgba(K.plum, .9); c.lineWidth = 3; c.beginPath(); for (let i = -170; i <= 170; i += 17) { c.moveTo(x + i, y - 52); c.lineTo(x + i, y - 8); } c.stroke(); }
+  // Washington Monument (right)
+  { const x = 1648 - camX * 10, y = HZ; c.fillStyle = K.void;
+    c.beginPath(); c.moveTo(x - 22, y); c.lineTo(x - 13, y - 330); c.lineTo(x, y - 372); c.lineTo(x + 13, y - 330); c.lineTo(x + 22, y); c.closePath(); c.fill(); rim();
+    c.strokeStyle = rgba(K.vio, .9); c.shadowColor = K.vio; c.shadowBlur = 12; c.beginPath(); c.arc(x, y - 376, 3, 0, 7); c.fillStyle = K.vio; c.fill(); c.shadowBlur = 0; }
+  c.restore();
+}
+
+function ground(t, camX) {
+  const c = sctx;
+  const gg = c.createLinearGradient(0, HZ, 0, H); gg.addColorStop(0, K.elev); gg.addColorStop(.12, K.card); gg.addColorStop(1, K.void);
+  c.fillStyle = gg; c.fillRect(0, HZ, W, H - HZ);
+  const d = TRAVEL(t), fr = d - Math.floor(d);
+  c.save(); c.beginPath(); c.rect(0, HZ, W, H - HZ); c.clip(); c.globalCompositeOperation = 'lighter'; c.lineCap = 'round';
+  const hl = [];                                                         // horizontal lines (z-spaced) and vertical rays
+  for (let k = 0; k < 70; k++) { const z = k + 1 - fr; if (z < 0.28) continue; hl.push([HZ + 300 / z, Math.max(0, 1 - z / 52)]); }
+  const vl = []; for (let j = -40; j <= 40; j++) { const X = j * 0.28 - camX; vl.push([960 + X * 440 * (1 + 0.0), Math.max(0, 1 - Math.abs(j) / 40)]); }
+  const passes = [[15, .07], [6, .17], [2, 1]];
+  for (const [lw, al] of passes) {
+    c.lineWidth = lw;
+    c.beginPath(); for (const [y, a] of hl) { if (a <= 0.02) continue; c.moveTo(0, y); c.lineTo(W, y); }
+    c.strokeStyle = rgba(K.vio, al * 0.9); c.stroke();
+    c.beginPath(); for (const [xb] of vl) { c.moveTo(960, HZ); c.lineTo(960 + (xb - 960) * 1.0, H); }
+    c.strokeStyle = rgba(K.vio, al * 0.8); c.stroke();
+  }
+  c.restore();
+  // fade lines into the horizon haze
+  const hz = c.createLinearGradient(0, HZ, 0, HZ + 150); hz.addColorStop(0, rgba(K.elev, 1)); hz.addColorStop(1, rgba(K.elev, 0));
+  c.fillStyle = hz; c.fillRect(0, HZ, W, 150);
+}
+
+function drawSun(t, sunX, sunY, R, glowA) {
+  const c = sctx;
+  c.save(); c.globalCompositeOperation = 'lighter';
+  const gl = c.createRadialGradient(sunX, sunY, R * 0.6, sunX, sunY, R * 2.1); gl.addColorStop(0, rgba(K.vio, .34 * glowA)); gl.addColorStop(.5, rgba(K.plum, .22 * glowA)); gl.addColorStop(1, rgba(K.plum, 0));
+  c.fillStyle = gl; c.fillRect(0, 0, W, HZ + 5); c.restore();
+  drawSunLayer(R, t);
+  c.save(); c.beginPath(); c.rect(0, 0, W, HZ); c.clip(); c.drawImage(SUNCV, sunX - SUNCV.width / 2, sunY - SUNCV.height / 2); c.restore();
+  // reflection glow on the grid
+  c.save(); c.globalCompositeOperation = 'lighter'; c.translate(sunX, HZ); c.scale(1, 0.18);
+  const rg = c.createRadialGradient(0, 0, 0, 0, 0, R * 1.5); rg.addColorStop(0, rgba(K.vio, .36 * glowA)); rg.addColorStop(1, rgba(K.vio, 0));
+  c.fillStyle = rg; c.fillRect(-R * 1.5, 0, R * 3, R * 1.5); c.restore();
+}
+
+function osd(t) {
+  const c = sctx; c.save(); c.textBaseline = 'alphabetic'; c.shadowColor = 'rgba(13,7,16,.9)'; c.shadowBlur = 6; c.shadowOffsetX = 3; c.shadowOffsetY = 3;
+  const [p0, p1] = C.osd_play;
+  if (t < p1) { const blink = t < 1.0 ? 1 : (Math.floor(t * 6) % 2 ? 0.0 : 1); const a = (t < 1.0 ? 1 : clamp((p1 - t) / 0.2)) * (blink ? 1 : 0.3);
+    c.globalAlpha = a; c.fillStyle = K.wh; c.font = '600 64px GGRBarlow'; c.letterSpacing = '6px'; c.fillText('PLAY', 96, 128);
+    c.beginPath(); c.moveTo(262, 84); c.lineTo(262, 132); c.lineTo(304, 108); c.closePath(); c.fill(); }
+  c.globalAlpha = 1;
+  // clock: a day runs 00:00:00 -> 24:00:00 while the tape locks in, then holds as 24/7
+  const [c0, c1] = C.clock, fade = 1 - inv(C.title_exit[0], C.title_exit[1], t);
+  if (t >= c0 && fade > 0) {
+    c.globalAlpha = clamp((t - c0) / 0.2) * fade; c.textAlign = 'right'; c.fillStyle = K.wh; c.letterSpacing = '5px';
+    if (t < c1) { const sec = Math.floor(86400 * eio(inv(c0, c1, t))), h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
+      const f = n => String(n).padStart(2, '0'); c.font = '600 60px GGRBarlow'; c.fillText(`${f(h)}:${f(m)}:${f(s)}`, 1824, 128); }
+    else { const k = eb(inv(c1, c1 + 0.3, t), 2.2); c.save(); c.translate(1824, 128); c.scale(k, k); c.font = '600 72px GGRBarlow'; c.fillText('24/7', 0, 0);
+      c.letterSpacing = '8px'; c.font = '500 28px GGRBarlow'; c.fillStyle = K.muted; c.fillText('ON AIR', 0, 40); c.restore(); }
+  }
+  c.restore();
+}
+
+function titleBlock(t) {
+  const c = sctx, s0 = C.slam;
+  if (t < s0) return;
+  const exitA = 1 - inv(C.title_exit[0], C.title_exit[1], t);
+  if (exitA <= 0) return;
+  const p = inv(s0, s0 + 0.3, t), k = lerp(2.7, 1, eo(p)) + 0.035 * Math.sin(inv(s0 + 0.3, s0 + 0.6, t) * Math.PI) * (t < s0 + 0.6 ? 1 : 0), cx = 960, cy = 430;
+  c.save(); c.translate(cx, cy); c.scale(k, k); c.translate(-900, -TBASE[1] + 120);
+  c.globalAlpha = clamp((t - s0) / 0.05) * exitA;
+  c.drawImage(TITLE, 0, 0);
+  // glint sweep (diagonal light band clipped to the chrome)
+  const [g0, g1] = C.glint;
+  if (t >= g0 && t <= g1) {
+    const u = eio(inv(g0, g1, t)), tmp = GLINT; const g = tmp.getContext('2d'); g.clearRect(0, 0, tmp.width, tmp.height);
+    g.drawImage(TITLE, 0, 0); g.globalCompositeOperation = 'source-atop';
+    const x = lerp(-300, 2100, u), gr = g.createLinearGradient(x - 120, 0, x + 120, 260); gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(.5, 'rgba(255,255,255,.95)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, tmp.width, tmp.height); g.globalCompositeOperation = 'source-over';
+    c.globalCompositeOperation = 'lighter'; c.globalAlpha = 0.9 * exitA; c.drawImage(tmp, 0, 0);
+  }
+  c.restore();
+}
+
+function neon(t) {
+  const [n0, n1] = C.neon, exitA = 1 - inv(C.title_exit[0], C.title_exit[1] + 0.1, t);
+  if (t < n0 || exitA <= 0) return;
+  const c = sctx, p = eio(inv(n0, n1, t));
+  let a = exitA; for (const [a0, a1] of C.neon_off) if (t >= a0 && t < a1) a *= 0.1;
+  c.save(); c.font = 'italic 800 100px "Playfair Display"'; c.textAlign = 'center'; c.textBaseline = 'alphabetic'; c.lineJoin = 'round';
+  const txt = '1977 – 2009', w = c.measureText(txt).width, x0 = 960 - w / 2, y = 770;
+  c.beginPath(); c.rect(x0 - 30, y - 120, (w + 60) * p, 180); c.clip();
+  c.globalCompositeOperation = 'lighter'; c.globalAlpha = a;
+  c.lineWidth = 22; c.strokeStyle = rgba(K.vio, .16); c.strokeText(txt, 960, y);
+  c.lineWidth = 11; c.strokeStyle = rgba(K.vio, .4); c.strokeText(txt, 960, y);
+  c.lineWidth = 5; c.strokeStyle = K.vio; c.strokeText(txt, 960, y);
+  c.lineWidth = 2; c.strokeStyle = K.blush; c.strokeText(txt, 960, y);
+  c.restore();
+  if (p < 1) { const hx = x0 + w * p, hg = sctx.createRadialGradient(hx, 735, 0, hx, 735, 60); hg.addColorStop(0, 'rgba(255,255,255,.9)'); hg.addColorStop(.3, rgba(K.vio, .6)); hg.addColorStop(1, rgba(K.vio, 0));
+    sctx.save(); sctx.globalCompositeOperation = 'lighter'; sctx.fillStyle = hg; sctx.fillRect(hx - 60, 675, 120, 120); sctx.restore(); }
+}
+
+function flare(t) {
+  const c = sctx, s0 = C.slam, u = (t - s0) / 0.55; if (u < 0 || u > 1) return;
+  const a = (1 - u) ** 2;
+  c.save(); c.globalCompositeOperation = 'lighter';
+  c.fillStyle = `rgba(244,232,254,${0.8 * (1 - inv(0, 0.28, u)) })`; c.fillRect(0, 0, W, H);
+  c.translate(960, 430); c.scale(1, 0.035); const g = c.createRadialGradient(0, 0, 0, 0, 0, 1100); g.addColorStop(0, `rgba(255,255,255,${a})`); g.addColorStop(.25, rgba(K.vio, .7 * a)); g.addColorStop(1, rgba(K.vio, 0));
+  c.fillStyle = g; c.fillRect(-1100, -1100, 2200, 2200); c.restore();
+  c.save(); c.globalCompositeOperation = 'lighter'; const g2 = c.createRadialGradient(960, 430, 0, 960, 430, 380 * (0.4 + u)); g2.addColorStop(0, `rgba(255,255,255,${0.55 * a})`); g2.addColorStop(1, rgba(K.vio, 0)); c.fillStyle = g2; c.fillRect(0, 0, W, H); c.restore();
+}
+
+function ticker(t) {
+  const t0 = C.ticker; if (t < t0) return;
+  const c = sctx, a = eo(inv(t0, t0 + 0.35, t)), names = ['RARE ESSENCE', 'BACKYARD BAND', 'TCB', 'JUNKYARD BAND', 'NEG', 'BOUNCEBEAT KINGS'];
+  c.save(); c.globalAlpha = a; const y = 966 + (1 - a) * 60;
+  c.fillStyle = rgba(K.void, .86); c.fillRect(0, y, W, 84); c.fillStyle = rgba(K.royal, .9); c.fillRect(0, y, W, 2);
+  c.font = '500 36px GGRBarlow'; c.letterSpacing = '4.5px'; c.textBaseline = 'middle'; c.fillStyle = K.lav;
+  const s = names.join('   ·   ') + '   ·   ', w = c.measureText(s).width, off = ((t - t0) * 130) % w;
+  for (let i = -1; i < Math.ceil(W / w) + 1; i++) c.fillText(s, i * w - off, y + 44);
+  c.restore();
+}
+
+function endCard(t) {
+  const c = sctx, [s0, s1] = C.seal;
+  // seal
+  if (t >= s0) {
+    const p = inv(s0, s1, t), k = lerp(0.55, 1, eb(p, 1.7)), a = clamp(p * 2.2), bt = (t * C.bpm / 60) % 1, pulse = t > s1 ? 1 + 0.012 * Math.exp(-bt * 5) : 1;
+    c.save(); c.translate(SEAL_X(t), 484); c.scale(k * pulse, k * pulse); c.globalAlpha = a;
+    c.globalCompositeOperation = 'lighter'; c.globalAlpha = a * (0.7 + 0.2 * Math.exp(-bt * 4)); c.drawImage(SEAL_GLOW, -SEAL_GLOW.width / 2, -SEAL_GLOW.height / 2);
+    c.globalCompositeOperation = 'source-over'; c.globalAlpha = a;
+    c.drawImage(SEAL, -SEAL_CX * SEAL_S, -SEAL_CY * SEAL_S, SEAL.width * SEAL_S, SEAL.height * SEAL_S); c.restore();
+  }
+  // text block
+  const [f0, f1, f2] = C.frags;
+  const x = 1010; c.save(); c.textAlign = 'left'; c.textBaseline = 'alphabetic';
+  const pop = (t0, draw) => { if (t < t0) return; const u = inv(t0, t0 + 0.4, t), k = eb(u, 2); c.save(); c.globalAlpha = clamp(u * 3); draw(k, u); c.restore(); };
+  c.font = `italic 900 ${FIT.a}px "Playfair Display"`;
+  pop(f0, (k, u) => { c.translate(x, 430); c.translate(0, (1 - eo(u)) * 40); c.fillStyle = K.wh; c.font = `italic 900 ${FIT.a}px "Playfair Display"`; c.fillText('Go-Go Royalty.com.', 0, 0); });
+  pop(f1, (k, u) => { c.translate(x, 548); c.translate(0, (1 - eo(u)) * 40); c.fillStyle = K.blush; c.font = `italic 900 ${FIT.b}px "Playfair Display"`; c.fillText('Stream free,', 0, 0); });
+  pop(f2, (k, u) => { c.translate(x + FIT.wb + 22, 548); c.translate(0, (1 - eo(u)) * 40); c.fillStyle = K.blush; c.font = `italic 900 ${FIT.b}px "Playfair Display"`; c.fillText('24 hours.', 0, 0); });
+  // CTA pill
+  if (t >= C.cta) { const u = inv(C.cta, C.cta + 0.45, t), k = eb(u, 2.2), w = FIT.pill, h = 88;
+    c.save(); c.translate(x + w / 2, 672); c.scale(k, k); c.globalAlpha = clamp(u * 3);
+    c.shadowColor = 'rgba(180,92,253,.35)'; c.shadowBlur = 24; c.fillStyle = K.vio; c.beginPath(); c.roundRect(-w / 2, -h / 2, w, h, h / 2); c.fill(); c.shadowBlur = 0;
+    c.fillStyle = K.wh; c.font = '600 46px GGRBarlow'; c.letterSpacing = '3px'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('go-goroyalty.com', 0, 3); c.restore(); }
+  c.restore();
+}
+const SEAL_X = t => lerp(960, 560, eio(inv(C.sun_move[0], C.sun_move[1], t)));
+
+function drawScene(t) {
+  const c = sctx; c.setTransform(1, 0, 0, 1, 0, 0); c.globalAlpha = 1; c.globalCompositeOperation = 'source-over'; c.clearRect(0, 0, W, H);
+  // camera shake on the slam
+  const su = (t - C.slam) / 0.5, shk = su >= 0 && su < 1 ? (1 - su) ** 2 * 16 : 0;
+  c.save(); if (shk) c.translate((hash(Math.floor(t * 60), 1) - .5) * shk, (hash(Math.floor(t * 60), 2) - .5) * shk);
+  const camX = 0.22 * Math.sin(t * 0.7) * (1 - inv(5.6, 7, t) * 0.8);
+  // sky
+  const sg = c.createLinearGradient(0, 0, 0, HZ); sg.addColorStop(0, K.void); sg.addColorStop(.55, K.card); sg.addColorStop(1, K.elev); c.fillStyle = sg; c.fillRect(-40, -40, W + 80, HZ + 40);
+  for (let i = 0; i < 210; i++) { const x = hash(i, 1) * W, y = Math.pow(hash(i, 2), 1.4) * (HZ - 60), tw = .55 + .45 * Math.sin(t * (1.5 + hash(i, 3) * 3) + hash(i, 4) * 6.28), r = .8 + hash(i, 5) * 1.6;
+    c.fillStyle = rgba(hash(i, 6) > .6 ? K.blush : K.muted, tw * (.35 + .5 * hash(i, 7))); c.fillRect(x, y, r, r); }
+  // sun
+  const mv = eio(inv(C.sun_move[0], C.sun_move[1], t)), R = lerp(330, 360, mv);
+  const rise = eo(inv(C.sun_rise[0], C.sun_rise[1], t)), riseH = lerp(-R - 14, 170, rise);
+  const sunX = lerp(960, 560, mv), sunY = HZ - riseH + lerp(0, 170 - 160, mv);
+  drawSun(t, sunX, sunY, R, 1);
+  ridge(HZ, 118, 2.1, 0.6, camX, K.muted, rgba(K.card, 1), 0.55);
+  ridge(HZ, 66, 5.4, 1.0, camX, K.vio, rgba(K.void, 1), 0.95);
+  skyline(lerp(1, 0.14, mv), camX);
+  ground(t, camX);
+  titleBlock(t); neon(t);
+  endCard(t);
+  ticker(t);
+  c.restore();
+  flare(t);
+  osd(t);
+}
+
+/* ---------- VHS pass: wobble, RGB split, glitch bands, scanlines, grain, tracking noise ---------- */
+function vhs(t, frame) {
+  const src = sctx.getImageData(0, 0, W, H), s = new Uint32Array(src.data.buffer), out = ctx.createImageData(W, H), o = new Uint32Array(out.data.buffer);
+  let gl = null; for (const g of C.glitches) if (t >= g && t < g + 0.11) gl = g;
+  const su = t - C.slam, slamG = su >= 0 && su < 0.16, intro = clamp(1 - t / 1.0), trk = t < 1.6;
+  const bands = []; if (gl !== null || slamG) { const sd = gl !== null ? gl : C.slam; for (let b = 0; b < 4; b++) bands.push([hash(sd, b) * H, 18 + hash(sd, b + 9) * 80, (hash(sd, b + 20) - .5) * 220]); }
+  const split = Math.round(2 + (gl !== null || slamG ? 5 : 0) + intro * 5), ty = trk ? (t * 560) % 1500 - 200 : -999;
+  const tapeOut = t > 9.75;
+  for (let y = 0; y < H; y++) {
+    let dx = Math.round(1.4 * Math.sin(y * 0.021 + t * 6.5) + 0.9 * Math.sin(y * 0.063 - t * 11) + intro * 14 * Math.sin(y * 0.01 + t * 20) * hash(y >> 3, frame));
+    for (const [by, bh, bd] of bands) if (y >= by && y < by + bh) dx += Math.round(bd);
+    const inTrk = trk && y > ty && y < ty + 110; if (inTrk) dx += Math.round(40 * Math.sin(y * .3 + t * 50) * (1 - t / 1.6));
+    const row = y * W, scan = (y & 3) < 2 ? 1 : 0.88, nzRow = (y * 7 + frame * 131) & 0x3ffff;
+    for (let x = 0; x < W; x++) {
+      let xr = x - dx - split, xg = x - dx, xb = x - dx + split;
+      xr = xr < 0 ? 0 : xr >= W ? W - 1 : xr; xg = xg < 0 ? 0 : xg >= W ? W - 1 : xg; xb = xb < 0 ? 0 : xb >= W ? W - 1 : xb;
+      let r = s[row + xr] & 255, g = (s[row + xg] >> 8) & 255, b = (s[row + xb] >> 16) & 255;
+      const n = NZ[(nzRow + x * 3) & 0x3ffff] - 128;
+      let k = scan, nz = n * 0.07;
+      if (inTrk) { const m = 0.55 + 0.45 * (NZ[(nzRow + x * 5 + 77) & 0x3ffff] / 255); r = r * 0.4 + 255 * m * 0.6 * 0.9; g = g * 0.4 + 255 * m * 0.6 * 0.82; b = b * 0.4 + 255 * m * 0.6; }
+      else if (intro > 0.02) { const m = NZ[(nzRow + x * 11 + frame * 17) & 0x3ffff] / 255, a = intro * (y % 6 < 3 ? 0.65 : 0.4); r += (m * 255 - r) * a; g += (m * 240 - g) * a; b += (m * 255 - b) * a; }
+      r = r * k + nz; g = g * k + nz; b = b * k + nz;
+      o[row + x] = 0xff000000 | ((b < 0 ? 0 : b > 255 ? 255 : b) << 16) | ((g < 0 ? 0 : g > 255 ? 255 : g) << 8) | (r < 0 ? 0 : r > 255 ? 255 : r);
+    }
+  }
+  ctx.putImageData(out, 0, 0);
+  // vignette
+  const vg = ctx.createRadialGradient(960, 540, 420, 960, 540, 1180); vg.addColorStop(0, 'rgba(13,7,16,0)'); vg.addColorStop(1, 'rgba(13,7,16,.62)'); ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+}
+
+window.DEMO = { width: W, height: H, fps: 30, duration: 10 };
+window.renderAt = async (t) => { drawScene(t); vhs(t, Math.round(t * 30)); };
+
+(async () => {
+  C = await (await fetch('./cues.json')).json();
+  SEAL = new Image(); SEAL.src = encodeURI('/assets/brands/gogoroyalty/logos/Go Go Royalty logo.png'); await SEAL.decode();
+  await Promise.all([document.fonts.load('italic 900 200px "Playfair Display"', 'VINTAGE STATION Go-Go Royalty.com. 1977 – 2009 Stream free, 24 hours.'), document.fonts.load('italic 800 100px "Playfair Display"', '1977 – 2009'),
+    document.fonts.load('600 46px GGRBarlow', 'go-goroyalty.com 24/7 PLAY 00:00:00'), document.fonts.load('500 36px GGRBarlow', 'RARE ESSENCE · NEG')]);
+  TBASE = buildTitle();
+  SUNCV = mk(Math.ceil(2 * 370 + 20), Math.ceil(2 * 370 + 20)); GLINT = mk(1800, 640);
+  // seal halo: the artwork's own silhouette, tinted Vivid Violet and blurred (outside glow only; the mark itself is drawn untouched)
+  { const g0 = mk(1100, 1100), c0 = g0.getContext('2d'); c0.drawImage(SEAL, 550 - SEAL_CX * SEAL_S, 550 - SEAL_CY * SEAL_S, SEAL.width * SEAL_S, SEAL.height * SEAL_S);
+    c0.globalCompositeOperation = 'source-in'; c0.fillStyle = K.vio; c0.fillRect(0, 0, 1100, 1100);
+    const g1 = mk(1100, 1100), c1 = g1.getContext('2d'); c1.filter = 'blur(34px)'; c1.globalAlpha = 0.9; c1.drawImage(g0, 0, 0); c1.filter = 'blur(10px)'; c1.globalAlpha = 0.55; c1.drawImage(g0, 0, 0);
+    SEAL_GLOW = g1; }
+  // text sizing for the end card
+  { ctx.font = 'italic 900 100px "Playfair Display"'; const wa = ctx.measureText('Go-Go Royalty.com.').width, a = Math.min(104, 100 * 800 / wa);
+    const b = Math.min(70, a * 0.7); ctx.font = `italic 900 ${b}px "Playfair Display"`; const wb = ctx.measureText('Stream free,').width, wc = ctx.measureText('24 hours.').width;
+    ctx.font = '600 46px GGRBarlow'; ctx.letterSpacing = '3px'; const pill = ctx.measureText('go-goroyalty.com').width + 110; ctx.letterSpacing = '0px';
+    FIT = { a, b, wb, wc, pill }; }
+  window.__ready = true;
+})();
+</script></body></html>
