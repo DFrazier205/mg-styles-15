@@ -1,0 +1,869 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Fluid Stadium Assembly - Isometric</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #EBDCC8; overflow: hidden; }
+  #c { display: block; width: 1920px; height: 1080px; }
+</style>
+</head>
+<body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script>
+// Generic-brand film. Style: 03 Isometric (hand-built true-isometric projection on canvas 2D, no 3D engine).
+// Every frame is a pure function of t. All timing comes from cues.json.
+window.DEMO = { width: 1920, height: 1080, fps: 30, duration: 10 };
+(async function () {
+const CUES = await (await fetch('/demos/generic-fluid-stadium/cues.json')).json();
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const W = 1920, H = 1080;
+
+// ------------------------------------------------------------------ math helpers
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const lerp = (a, b, t) => a + (b - a) * t;
+const sm = (a, b, x) => { const t = clamp((x - a) / (b - a)); return t * t * (3 - 2 * t); };
+const eOutC = t => 1 - Math.pow(1 - clamp(t), 3);
+const eInOutC = t => { t = clamp(t); return t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; };
+const eOutB = (t, c = 1.7) => { t = clamp(t); const c3 = c + 1; return 1 + c3 * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); };
+function mulberry32(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const rnd = mulberry32(20261012);
+const hash = (a, b) => { const x = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return x - Math.floor(x); };
+
+// ------------------------------------------------------------------ true isometric projection
+const S = 5.4, C30 = 0.8660254, KX = C30 * S, KY = 0.5 * S, KZ = S;
+let OX = 960, OY = 650;
+function P(X, Y, Z) { return [OX + (X - Y) * KX, OY + (X + Y) * KY - Z * KZ]; }
+// (the world circle of radius r on the ground is an axis-aligned screen ellipse: rx = 1.2247 r S, ry = 0.7071 r S)
+const ERX = 1.224745 * S, ERY = 0.707107 * S;
+
+// ------------------------------------------------------------------ palette (generic brand, golden hour)
+const rgb = (r, g, b, a = 1) => a >= 1 ? `rgb(${r | 0},${g | 0},${b | 0})` : `rgba(${r | 0},${g | 0},${b | 0},${a})`;
+const SHT = [88, 72, 112];
+function sh(base, f, a = 1) {
+  const m = clamp(f, 0, 1.15), k = 0.38 * (1 - Math.min(m, 1)), q = 0.52 + 0.48 * m;
+  return rgb(lerp(base[0] * q, SHT[0], k), lerp(base[1] * q, SHT[1], k), lerp(base[2] * q, SHT[2], k), a);
+}
+const faceF = (nx, ny) => 0.72 + 0.30 * (nx * 0.9 - ny * 0.62);   // sun from upper right: +X faces lit, +Y faces in shade
+const COL = {
+  tileA: [224, 207, 182], tileB: [214, 196, 170], tileSide: [168, 148, 122],
+  petal: [[243, 234, 221], [248, 240, 229], [252, 247, 238]],
+  roof: [253, 250, 244], bronze: [214, 158, 98],
+  cont: [40, 37, 45], amber: [255, 194, 90],
+  fieldA: [163, 201, 153], fieldB: [149, 189, 142]
+};
+
+// ------------------------------------------------------------------ geometry helpers
+const RX = 100, RY = 70, PW = 2 / 2.6;
+function E(rho, phi) {
+  const c = Math.cos(phi), s = Math.sin(phi);
+  return [RX * rho * Math.sign(c) * Math.pow(Math.abs(c), PW), RY * rho * Math.sign(s) * Math.pow(Math.abs(s), PW)];
+}
+function fillPoly(sp, fill, stroke, lw) {
+  ctx.beginPath(); ctx.moveTo(sp[0][0], sp[0][1]);
+  for (let i = 1; i < sp.length; i++) ctx.lineTo(sp[i][0], sp[i][1]);
+  ctx.closePath();
+  if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lw || 1; ctx.stroke(); }
+}
+// extruded polygon: side faces that face the viewer + cap
+function prism(pts, zbot, ztop, topFill, sideBase, topStroke, capOn) {
+  const n = pts.length; let area = 0;
+  for (let i = 0; i < n; i++) { const j = (i + 1) % n; area += pts[i][0] * pts[j][1] - pts[j][0] * pts[i][1]; }
+  const sg = area > 0 ? 1 : -1;
+  const zb = (i) => Array.isArray(zbot) ? zbot[i] : zbot;
+  const zt = (i) => Array.isArray(ztop) ? ztop[i] : ztop;
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    const dx = pts[j][0] - pts[i][0], dy = pts[j][1] - pts[i][1];
+    let nx = sg > 0 ? dy : -dy, ny = sg > 0 ? -dx : dx;
+    const len = Math.hypot(nx, ny); if (len < 1e-6) continue;
+    nx /= len; ny /= len;
+    if (nx + ny <= 0.02) continue;
+    const col = sh(sideBase, faceF(nx, ny));
+    fillPoly([P(pts[i][0], pts[i][1], zt(i)), P(pts[j][0], pts[j][1], zt(j)), P(pts[j][0], pts[j][1], zb(j)), P(pts[i][0], pts[i][1], zb(i))], col, col, 0.6);
+  }
+  if (capOn !== false) {
+    const sp = pts.map((p, i) => P(p[0], p[1], zt(i)));
+    fillPoly(sp, topFill, topStroke || null, 0.9);
+  }
+}
+
+// ------------------------------------------------------------------ static scene data
+const NSEG = CUES.nseg;
+const TIERS = [
+  { r0: .56, r1: .68, z0: 1, z1: 4 },
+  { r0: .70, r1: .83, z0: 4.5, z1: 8.5 },
+  { r0: .85, r1: .97, z0: 9.5, z1: 14.5 }
+];
+const dphi = 2 * Math.PI / NSEG;
+
+// petals
+function petalGeom(k, i) {
+  const T = TIERS[k], phi = (i + 0.5 * (k % 2)) * dphi, hw0 = dphi * 0.5 * 0.86;
+  const hw = s => hw0 * (0.7 + 0.3 * Math.sin(Math.PI * s));
+  const pts = [], sv = [];
+  for (let q = 0; q <= 2; q++) { pts.push(E(T.r0, phi - hw(0) + 2 * hw(0) * q / 2)); sv.push(0); }
+  for (let q = 1; q <= 4; q++) { const s = q / 4; pts.push(E(lerp(T.r0, T.r1, s), phi + hw(s))); sv.push(s); }
+  for (let q = 1; q <= 2; q++) { pts.push(E(T.r1, phi + hw(1) - 2 * hw(1) * q / 2)); sv.push(1); }
+  for (let q = 3; q >= 1; q--) { const s = q / 4; pts.push(E(lerp(T.r0, T.r1, s), phi - hw(s))); sv.push(s); }
+  const c = E((T.r0 + T.r1) / 2, phi);
+  const zs = sv.map(s => lerp(T.z0, T.z1, s));
+  // seat-row polylines
+  const rows = [];
+  for (const s of [0.34, 0.67]) {
+    const row = [];
+    for (let q = 0; q <= 2; q++) row.push([...E(lerp(T.r0, T.r1, s), phi - hw(s) * 0.92 + 2 * hw(s) * 0.92 * q / 2), lerp(T.z0, T.z1, s)]);
+    rows.push(row);
+  }
+  const ang = rnd() * Math.PI * 2;
+  return { pts, sv, zs, cx: c[0], cy: c[1], rows, ox: Math.cos(ang) * 3, oy: Math.sin(ang) * 3, swirl: rnd() < 0.5 ? -1 : 1 };
+}
+const PET = TIERS.map((_, k) => Array.from({ length: NSEG }, (_, i) => petalGeom(k, i)));
+
+// roof panels
+const ROOFT = { r0: 0.80, r1: 1.12, z0: 19.5, z1: 24 };
+function roofGeom(i) {
+  const phi = (i + 0.0) * dphi, hw0 = dphi * 0.5 * 0.9;
+  const hw = s => hw0 * (0.78 + 0.22 * Math.sin(Math.PI * s));
+  const pts = [], sv = [];
+  for (let q = 0; q <= 2; q++) { pts.push(E(ROOFT.r0, phi - hw(0) + 2 * hw(0) * q / 2)); sv.push(0); }
+  for (let q = 1; q <= 4; q++) { const s = q / 4; pts.push(E(lerp(ROOFT.r0, ROOFT.r1, s), phi + hw(s))); sv.push(s); }
+  for (let q = 1; q <= 2; q++) { pts.push(E(ROOFT.r1, phi + hw(1) - 2 * hw(1) * q / 2)); sv.push(1); }
+  for (let q = 3; q >= 1; q--) { const s = q / 4; pts.push(E(lerp(ROOFT.r0, ROOFT.r1, s), phi - hw(s))); sv.push(s); }
+  const c = E((ROOFT.r0 + ROOFT.r1) / 2, phi);
+  const zs = sv.map(s => lerp(ROOFT.z0, ROOFT.z1, s));
+  // perforations
+  const holes = [];
+  for (const [s, offs] of [[0.28, [-0.4, 0.4]], [0.58, [-0.55, 0, 0.55]], [0.86, [-0.3, 0.3]]]) {
+    for (const o of offs) {
+      const hp = E(lerp(ROOFT.r0, ROOFT.r1, s), phi + o * hw(s));
+      holes.push([hp[0], hp[1], lerp(ROOFT.z0, ROOFT.z1, s)]);
+    }
+  }
+  const ang = rnd() * Math.PI * 2;
+  return { pts, sv, zs, cx: c[0], cy: c[1], holes, ox: Math.cos(ang) * 2, oy: Math.sin(ang) * 2, phi };
+}
+const ROOF = Array.from({ length: NSEG }, (_, i) => roofGeom(i));
+const PORTAL_IDX = [2, 5, 8, 11, 14, 17, 20, 23, 26, 0];
+
+// trusses (twisting upward like branches)
+const TR = [];
+for (let i = 0; i < 12; i++) {
+  const phi0 = (i + 0.25) * 2 * Math.PI / 12, tw = (i % 2 ? 1 : -1) * 0.22, N = 22;
+  const main = [];
+  for (let q = 0; q <= N; q++) {
+    const s = q / N;
+    const rho = 1.06 - 0.09 * s + 0.02 * Math.sin(6.28 * s + i);
+    const e = E(rho, phi0 + tw * Math.pow(s, 1.15));
+    main.push([e[0], e[1], 21 * Math.pow(s, 0.9)]);
+  }
+  const branches = [];
+  for (const sb of [0.5, 0.74]) {
+    const q0 = Math.round(sb * N), b0 = main[q0], side = (sb < 0.6 ? 1 : -1) * (i % 2 ? 1 : -1);
+    const tgt = E(1.01, phi0 + tw * 0.9 + side * 0.17);
+    const tz = 21.5 - (sb - 0.5) * 3;
+    const ctrl = [lerp(b0[0], tgt[0], 0.35), lerp(b0[1], tgt[1], 0.35), b0[2] + 6];
+    const pts = [];
+    for (let q = 0; q <= 12; q++) {
+      const u = q / 12, a = (1 - u) * (1 - u), b = 2 * (1 - u) * u, c = u * u;
+      pts.push([a * b0[0] + b * ctrl[0] + c * tgt[0], a * b0[1] + b * ctrl[1] + c * tgt[1], a * b0[2] + b * ctrl[2] + c * tz]);
+    }
+    branches.push({ sb, pts });
+  }
+  TR.push({ main, branches, depth: main[8][0] + main[8][1] + main[8][2] });
+}
+
+// facade strips (translucent flowing glass)
+const FAC = [];
+for (let i = 0; i < NSEG; i++) {
+  const a0 = i * dphi, a1 = (i + 1) * dphi, bot = [], top = [];
+  for (let q = 0; q <= 2; q++) {
+    const a = lerp(a0, a1, q / 2), rho = 0.995 + 0.012 * Math.sin(5 * a);
+    const e = E(rho, a);
+    bot.push([e[0], e[1], 0]);
+    top.push([e[0], e[1], 15 + 3 * Math.sin(3 * a + 1.3) + 1.5 * Math.sin(7 * a + i)]);
+  }
+  const cm = E(0.995, (a0 + a1) / 2);
+  FAC.push({ bot, top, depth: cm[0] + cm[1] + 8, a: (a0 + a1) / 2 });
+}
+
+// ramps (floating pedestrian arcs)
+const RAMPS = [];
+[50, 130, 230, 310].forEach((deg, r) => {
+  const phi = deg * Math.PI / 180, sign = r % 2 ? -1 : 1, N = 26, pts = [];
+  for (let q = 0; q <= N; q++) {
+    const s = q / N, rho = 0.99 + 0.63 * s, a = phi + sign * 0.30 * Math.sin(Math.PI * s * 0.9);
+    const e = E(rho, a);
+    pts.push([e[0], e[1], 12.5 * Math.pow(1 - s, 1.15) + 1.3 + 2.4 * Math.sin(Math.PI * s)]);
+  }
+  const wd = 2.3, quads = [];
+  for (let q = 0; q < N; q++) {
+    const quad = [];
+    for (const idx of [q, q + 1]) {
+      const p0 = pts[Math.max(0, idx - 1)], p1 = pts[Math.min(N, idx + 1)];
+      let tx = p1[0] - p0[0], ty = p1[1] - p0[1]; const l = Math.hypot(tx, ty) || 1; tx /= l; ty /= l;
+      quad.push({ L: [pts[idx][0] - ty * wd, pts[idx][1] + tx * wd, pts[idx][2]], R: [pts[idx][0] + ty * wd, pts[idx][1] - tx * wd, pts[idx][2]] });
+    }
+    quads.push(quad);
+  }
+  const mid = pts[Math.round(N / 2)];
+  RAMPS.push({ pts, quads, depth: mid[0] + mid[1] + mid[2], phase: r * 1.7 });
+});
+
+// ground pathways blooming like roots
+const ROOTS = [];
+for (let i = 0; i < 10; i++) {
+  const phi0 = (i + 0.4) * 2 * Math.PI / 10, N = 18, path = [];
+  for (let q = 0; q <= N; q++) {
+    const s = q / N, e = E(1.0 + 0.25 * s, phi0 + 0.07 * Math.sin(s * 5 + i * 2));
+    path.push([e[0], e[1]]);
+  }
+  const br = [];
+  [0.35, 0.62].forEach((sb, bi) => {
+    const q0 = Math.round(sb * N), b0 = path[q0], side = (bi ? -1 : 1) * (i % 2 ? 1 : -1), pp = [];
+    for (let q = 0; q <= 8; q++) {
+      const u = q / 8, e = E(1.0 + 0.25 * (sb + 0.38 * u * (1 - sb * 0.4)), phi0 + 0.07 * Math.sin(sb * 5 + i * 2) + side * 0.16 * Math.pow(u, 0.8));
+      pp.push(q === 0 ? [b0[0], b0[1]] : [e[0], e[1]]);
+    }
+    br.push({ sb, pts: pp });
+  });
+  ROOTS.push({ path, br });
+}
+
+// scaffolding posts ring the basin
+const POSTS = [];
+for (let i = 0; i < 32; i++) {
+  const a = (i + 0.3 * hash(i, 1)) * 2 * Math.PI / 32, e = E(1.195, a);
+  POSTS.push({ X: e[0], Y: e[1], h: 13 + 7 * hash(i, 3), a });
+}
+
+// ground tiles in concentric rings
+const TILES = [];
+for (let k = 0; k < 13; k++) {
+  const r0 = 0.06 + k * 0.1, r1 = r0 + 0.1 - 0.012, n = Math.max(6, Math.round(57 * (r0 + 0.05)));
+  const gapA = 0.55 / (85 * (r0 + 0.05));
+  for (let j = 0; j < n; j++) {
+    const a0 = (j / n) * 2 * Math.PI + gapA, a1 = ((j + 1) / n) * 2 * Math.PI - gapA;
+    const pts = [E(r0, a0), E(r1, a0), E(r1, a1), E(r0, a1)];
+    const cX = (pts[0][0] + pts[2][0]) / 2, cY = (pts[0][1] + pts[2][1]) / 2;
+    TILES.push({ pts, k, td: CUES.rings[k] + hash(k, j) * 0.05, col: ((k + j) % 2 ? COL.tileA : COL.tileB), v: hash(j, k + 9), d: cX + cY });
+  }
+}
+TILES.sort((a, b) => a.d - b.d);
+const BASIN = []; for (let q = 0; q < 72; q++) BASIN.push(E(1.27, q / 72 * 2 * Math.PI));
+
+// dust specks around the container (vibration)
+const SPECKS = Array.from({ length: 150 }, () => { const a = rnd() * 6.283, r = 12 + rnd() * 34; return { X: Math.cos(a) * r, Y: Math.sin(a) * r * 0.8, ph: rnd() * 6.283, f: 9 + rnd() * 9 }; });
+// motes inside the sun shaft
+const MOTES = Array.from({ length: 80 }, () => ({ ph: rnd(), sp: 0.03 + rnd() * 0.05, lat: (rnd() - 0.5) * 2, sz: 0.8 + rnd() * 1.8, tw: rnd() * 6.283 }));
+
+// sky ridges
+const RIDGES = [{ base: 330, amp: 70, col: [196, 201, 220], par: 0.5, ph: 1.1 }, { base: 400, amp: 60, col: [182, 183, 207], par: 0.7, ph: 3.4 }, { base: 470, amp: 48, col: [170, 166, 195], par: 0.85, ph: 5.2 }]
+  .map(r => { const pts = []; for (let x = -160; x <= W + 160; x += 16) pts.push([x, r.base - r.amp * (0.5 + 0.5 * Math.sin(x * 0.0042 + r.ph)) - r.amp * 0.45 * Math.sin(x * 0.011 + r.ph * 2) - r.amp * 0.18 * Math.sin(x * 0.027 + r.ph * 3)]); return { ...r, pts }; });
+const CLOUDS = [[260, 150, 210, 38, 1.1], [760, 105, 260, 34, 1.2], [1520, 230, 230, 40, 1.15], [1130, 300, 190, 28, 1.25], [60, 330, 170, 26, 1.3]];
+
+// field outline (rounded rectangle)
+const FA = 38, FB = 23, FN = 6;
+const fieldY = X => FB * Math.pow(Math.max(0, 1 - Math.pow(Math.abs(X) / FA, FN)), 1 / FN);
+
+// ------------------------------------------------------------------ helpers for drawing layers
+function worldCircle(cX, cY, cZ, r, steps) {
+  const c = P(cX, cY, cZ);
+  ctx.beginPath(); ctx.ellipse(c[0], c[1], ERX * r, ERY * r, 0, 0, Math.PI * 2);
+}
+function drawSky(t) {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#A9C8DE'); g.addColorStop(0.36, '#D6DDE7'); g.addColorStop(0.60, '#F3DEC6'); g.addColorStop(1, '#F6E6D1');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  const cam = OX - 960, inten = 0.82 + 0.18 * sm(7, 7.6, t);
+  const sx = 1280 + cam * 0.4, sy = 150;
+  let rg = ctx.createRadialGradient(sx, sy, 0, sx, sy, 560);
+  rg.addColorStop(0, rgb(255, 244, 214, 0.95 * inten)); rg.addColorStop(0.25, rgb(255, 232, 190, 0.55 * inten)); rg.addColorStop(1, rgb(255, 226, 180, 0));
+  ctx.fillStyle = rg; ctx.fillRect(0, 0, W, 760);
+  // sun disc
+  rg = ctx.createRadialGradient(sx, sy, 0, sx, sy, 62);
+  rg.addColorStop(0, rgb(255, 252, 238, 1)); rg.addColorStop(0.7, rgb(255, 244, 214, 0.9)); rg.addColorStop(1, rgb(255, 240, 205, 0));
+  ctx.fillStyle = rg; ctx.fillRect(sx - 80, sy - 80, 160, 160);
+  // ridges with fog between them
+  for (const r of RIDGES) {
+    const dx = cam * r.par;
+    ctx.beginPath(); ctx.moveTo(r.pts[0][0] + dx, H);
+    for (const p of r.pts) ctx.lineTo(p[0] + dx, p[1]);
+    ctx.lineTo(r.pts[r.pts.length - 1][0] + dx, H); ctx.closePath();
+    ctx.fillStyle = rgb(r.col[0], r.col[1], r.col[2]); ctx.fill();
+    const fg = ctx.createLinearGradient(0, r.base - r.amp, 0, r.base + 80);
+    fg.addColorStop(0, rgb(246, 226, 200, 0)); fg.addColorStop(1, rgb(246, 226, 200, 0.75));
+    ctx.fillStyle = fg; ctx.fillRect(0, r.base - r.amp, W, r.amp + 90);
+  }
+  // warm haze: ridges dissolve into fog before the frame ends (no hard band)
+  const hz = ctx.createLinearGradient(0, 380, 0, 700);
+  hz.addColorStop(0, 'rgba(244,226,204,0)'); hz.addColorStop(0.55, 'rgba(244,226,206,0.8)'); hz.addColorStop(1, 'rgba(240,222,206,1)');
+  ctx.fillStyle = hz; ctx.fillRect(0, 380, W, H - 380);
+  // soft clouds (scaled round gradients, no clipped edges)
+  for (const c of CLOUDS) {
+    const dx = cam * c[4] * 0.6 + t * 6 * (c[4] - 0.9);
+    for (let q = 0; q < 4; q++) {
+      const cx = c[0] + dx + (q - 1.5) * c[2] * 0.28, cy = c[1] + Math.sin(q * 1.7) * 6, R = c[2] * 0.42;
+      ctx.save(); ctx.translate(cx, cy); ctx.scale(1, c[3] / (c[2] * 0.42) * 0.9);
+      const cg = ctx.createRadialGradient(0, 0, 0, 0, 0, R);
+      cg.addColorStop(0, rgb(255, 248, 238, 0.55)); cg.addColorStop(1, rgb(255, 248, 238, 0));
+      ctx.fillStyle = cg; ctx.fillRect(-R, -R, R * 2, R * 2); ctx.restore();
+    }
+  }
+}
+function drawBasin(t) {
+  // plinth slab: the basin reads as a diorama block sitting in the fog
+  prism(BASIN, -11, -1.6, rgb(190, 170, 144), [196, 176, 148], null, true);
+  // tiles drop in as a wave from the centre
+  for (const T of TILES) {
+    const tau = t - T.td;
+    if (tau < 0) continue;
+    let zoff;
+    if (tau < 0.2) zoff = 14 * (1 - (tau / 0.2) * (tau / 0.2));
+    else { const u = tau - 0.2; zoff = 1.3 * Math.exp(-8 * u) * Math.abs(Math.sin(16 * u)); }
+    const a = clamp(tau / 0.06);
+    ctx.globalAlpha = a;
+    const jit = (T.v - 0.5) * 0.06;
+    const top = [T.col[0] * (1 + jit), T.col[1] * (1 + jit), T.col[2] * (1 + jit)];
+    prism(T.pts, zoff - 1.6, zoff, rgb(top[0], top[1], top[2]), COL.tileSide, 'rgba(255,255,255,0.18)', true);
+  }
+  ctx.globalAlpha = 1;
+}
+function drawGroundFX(t) {
+  // vibration dust specks hopping off the ground, then settling
+  const amp = sm(0.1, 1.3, t) * (1 - sm(1.55, 2.2, t));
+  if (amp > 0.01) {
+    ctx.fillStyle = 'rgba(236,222,200,0.85)';
+    for (const s of SPECKS) {
+      const z = amp * 1.6 * Math.abs(Math.sin(t * s.f + s.ph));
+      const p = P(s.X, s.Y, z + 0.4);
+      ctx.beginPath(); ctx.arc(p[0], p[1], 1.5, 0, 6.283); ctx.fill();
+    }
+  }
+  // ripples through dust
+  for (let n = 0; n < 4; n++) {
+    const tr = 0.22 + n * 0.38, tau = (t - tr) / 0.9;
+    if (tau < 0 || tau > 1) continue;
+    const R = eOutC(tau) * 62;
+    worldCircle(0, 0, 0.2, R); ctx.strokeStyle = rgb(255, 250, 240, 0.30 * (1 - tau)); ctx.lineWidth = 2; ctx.stroke();
+  }
+  // shock ring when the container opens
+  const ts = (t - CUES.split) / 1.0;
+  if (ts > 0 && ts < 1) {
+    const R = eOutC(ts) * 118;
+    worldCircle(0, 0, 0.3, R); ctx.strokeStyle = rgb(255, 238, 200, 0.55 * (1 - ts)); ctx.lineWidth = 3.2; ctx.stroke();
+    worldCircle(0, 0, 0.3, R * 0.82); ctx.strokeStyle = rgb(255, 255, 255, 0.28 * (1 - ts)); ctx.lineWidth = 1.5; ctx.stroke();
+  }
+}
+function drawRoots(t) {
+  const sp = CUES.roots.spawn, gr = CUES.roots.grow;
+  const strokePath = (pts, prog, w0) => {
+    const n = pts.length - 1, upto = prog * n; if (upto <= 0) return;
+    for (let q = 0; q < n; q++) {
+      if (q >= upto) break;
+      const f = Math.min(1, upto - q), a = pts[q], b = pts[q + 1];
+      const pa = P(a[0], a[1], 0.12), pb = P(a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, 0.12);
+      const w = w0 * (1 - 0.55 * q / n);
+      ctx.lineWidth = w + 1.6; ctx.strokeStyle = 'rgba(120,98,84,0.22)'; ctx.beginPath(); ctx.moveTo(pa[0], pa[1] + 1.2); ctx.lineTo(pb[0], pb[1] + 1.2); ctx.stroke();
+      ctx.lineWidth = w; ctx.strokeStyle = 'rgba(252,246,232,0.95)'; ctx.beginPath(); ctx.moveTo(pa[0], pa[1]); ctx.lineTo(pb[0], pb[1]); ctx.stroke();
+    }
+  };
+  ctx.lineCap = 'round';
+  ROOTS.forEach((R, i) => {
+    const p = eOutC((t - sp[i]) / gr);
+    if (p <= 0) return;
+    strokePath(R.path, p, 2.4);
+    for (const b of R.br) strokePath(b.pts, clamp((p - b.sb) / (1 - b.sb)), 1.6);
+  });
+}
+function drawField(t) {
+  const prog = eInOutC((t - CUES.field.start) / (CUES.field.end - CUES.field.start));
+  if (prog <= 0) return;
+  const uX = lerp(-FA - 0.5, FA + 3, prog);
+  const clampX = X => Math.min(X, uX);
+  // outline clipped to X <= uX
+  const outline = [];
+  for (let q = 0; q < 72; q++) {
+    const th = q / 72 * 2 * Math.PI, c = Math.cos(th), s = Math.sin(th);
+    outline.push([clampX(FA * Math.sign(c) * Math.pow(Math.abs(c), 2 / FN)), FB * Math.sign(s) * Math.pow(Math.abs(s), 2 / FN)]);
+  }
+  const sp = outline.map(p => P(p[0], p[1], 0.25));
+  fillPoly(sp, rgb(COL.fieldA[0], COL.fieldA[1], COL.fieldA[2]), 'rgba(255,255,255,0.55)', 1.5);
+  // mow stripes
+  const ns = 12, sw = (2 * FA) / ns;
+  for (let k = 0; k < ns; k += 2) {
+    const x0 = -FA + k * sw, x1 = Math.min(-FA + (k + 1) * sw, uX); if (x1 <= x0) continue;
+    const pts = [];
+    for (let q = 0; q <= 4; q++) { const X = lerp(x0, x1, q / 4); pts.push([X, -fieldY(X)]); }
+    for (let q = 4; q >= 0; q--) { const X = lerp(x0, x1, q / 4); pts.push([X, fieldY(X)]); }
+    fillPoly(pts.map(p => P(p[0], p[1], 0.3)), rgb(COL.fieldB[0], COL.fieldB[1], COL.fieldB[2]), null);
+  }
+  // the rolled edge of fabric
+  if (uX < FA + 1.5) {
+    const ym = fieldY(Math.min(uX, FA - 0.01)) + 0.4;
+    const a = P(uX, -ym, 1.3), b = P(uX, ym, 1.3);
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = 'rgba(86,124,86,0.95)'; ctx.lineWidth = 9; ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+    ctx.strokeStyle = 'rgba(190,226,176,0.95)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(a[0] - 1.5, a[1] - 2); ctx.lineTo(b[0] - 1.5, b[1] - 2); ctx.stroke();
+  }
+}
+
+// ------------------------------------------------------------------ the container
+function containerDraw(t) {
+  const a = 17, b = 8.5, h = 15;
+  const vamp = sm(0.0, 1.2, t) * (1 - sm(1.5, 1.7, t));
+  const dx = vamp * 2.0 * Math.sin(t * 2 * Math.PI * 37), dy = vamp * 1.3 * Math.sin(t * 2 * Math.PI * 43 + 1);
+  const sx0 = OX, sy0 = OY; OX += dx; OY += dy;
+  const alpha = 1 - sm(2.7, 3.5, t);
+  ctx.globalAlpha = alpha;
+  const body = COL.cont;
+  const ft = clamp((t - (CUES.split + 0.05)) / 0.7), th = (Math.PI / 2) * eInOutC(ft) * 0.985;
+  const sN = Math.sin(th), cN = Math.cos(th);
+  const faces = {
+    mX: [[-a, -b, 0], [-a, b, 0], [-a - h * sN, b, h * cN], [-a - h * sN, -b, h * cN]],
+    mY: [[-a, -b, 0], [a, -b, 0], [a, -b - h * sN, h * cN], [-a, -b - h * sN, h * cN]],
+    pX: [[a, -b, 0], [a, b, 0], [a + h * sN, b, h * cN], [a + h * sN, -b, h * cN]],
+    pY: [[-a, b, 0], [a, b, 0], [a, b + h * sN, h * cN], [-a, b + h * sN, h * cN]]
+  };
+  const fz = th / (Math.PI / 2);
+  const faceCol = (nx, ny) => sh(body, lerp(faceF(nx, ny), 1.0, fz));
+  const drawFace = (q, col, ribs) => {
+    fillPoly(q.map(p => P(p[0], p[1], p[2])), col, 'rgba(0,0,0,0.0)', 0.5);
+    if (ribs > 0) {
+      for (let r = 1; r < ribs; r++) {
+        const u = r / ribs, A = [lerp(q[0][0], q[1][0], u), lerp(q[0][1], q[1][1], u), lerp(q[0][2], q[1][2], u)], B = [lerp(q[3][0], q[2][0], u), lerp(q[3][1], q[2][1], u), lerp(q[3][2], q[2][2], u)];
+        const pa = P(A[0], A[1], A[2]), pb = P(B[0], B[1], B[2]);
+        ctx.strokeStyle = 'rgba(255,255,255,0.055)'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(pa[0], pa[1]); ctx.lineTo(pb[0], pb[1]); ctx.stroke();
+        ctx.strokeStyle = 'rgba(0,0,0,0.30)'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(pa[0] + 2, pa[1]); ctx.lineTo(pb[0] + 2, pb[1]); ctx.stroke();
+      }
+    }
+  };
+  // back faces first
+  drawFace(faces.mX, sh(body, lerp(0.35, 1, fz)), 0);
+  drawFace(faces.mY, sh(body, lerp(0.35, 1, fz)), 0);
+  // interior floor glow
+  const open = sm(CUES.split, CUES.split + 0.45, t);
+  if (open > 0) {
+    const gl = rgb(255, lerp(214, 244, open), lerp(150, 214, open), 1);
+    fillPoly([[-a + 1.5, -b + 1], [a - 1.5, -b + 1], [a - 1.5, b - 1], [-a + 1.5, b - 1]].map(p => P(p[0], p[1], 0.6)), gl, null);
+  }
+  drawFace(faces.pX, faceCol(1, 0), 14);
+  drawFace(faces.pY, faceCol(0, 1), 7);
+  // lid halves slide apart along +/-Y
+  const sl = 15 * eOutC((t - CUES.split) / 0.55);
+  const lidTop = h + 0.9, lidBot = h - 0.5;
+  const halves = [[0, b, 1], [-b, 0, -1]];
+  const lidCol = sh(body, 1.06);
+  for (const hv of halves) {
+    const y0 = hv[0] + hv[2] * sl, y1 = hv[1] + hv[2] * sl;
+    const pts = [[-a, y0], [a, y0], [a, y1], [-a, y1]];
+    const lz = lidTop + 6 * Math.sin(Math.PI * clamp((t - CUES.split) / 0.8)) * 0;
+    prism(pts, lidBot, lz, lidCol, body, 'rgba(255,214,150,0.45)', true);
+  }
+  // seam glow tracing the edges before it splits
+  const g = sm(CUES.seam - 0.05, CUES.seam + 0.30, t) * (1 - sm(CUES.split + 0.2, CUES.split + 0.7, t));
+  if (g > 0.01) {
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+    const edges = [
+      [[-a, -b, h], [a, -b, h]], [[a, -b, h], [a, b, h]], [[a, b, h], [-a, b, h]], [[-a, b, h], [-a, -b, h]],
+      [[-a, 0, h], [a, 0, h]],
+      [[a, -b, 0], [a, -b, h]], [[a, b, 0], [a, b, h]], [[-a, b, 0], [-a, b, h]],
+      [[a, -b, 0], [a, b, 0]], [[a, b, 0], [-a, b, 0]]
+    ];
+    edges.forEach((e, i) => {
+      const pa = P(e[0][0], e[0][1], e[0][2]), pb = P(e[1][0], e[1][1], e[1][2]);
+      const chase = 0.6 + 0.4 * Math.sin(t * 22 - i * 1.3);
+      ctx.strokeStyle = rgb(255, 170, 70, 0.22 * g); ctx.lineWidth = 9; ctx.beginPath(); ctx.moveTo(pa[0], pa[1]); ctx.lineTo(pb[0], pb[1]); ctx.stroke();
+      ctx.strokeStyle = rgb(255, 214, 140, 0.95 * g * chase); ctx.lineWidth = 2.4; ctx.beginPath(); ctx.moveTo(pa[0], pa[1]); ctx.lineTo(pb[0], pb[1]); ctx.stroke();
+    });
+    ctx.globalCompositeOperation = 'source-over';
+  }
+  ctx.globalAlpha = 1;
+  OX = sx0; OY = sy0;
+}
+
+// ------------------------------------------------------------------ pieces (petals, roof panels)
+function petalDraw(k, i, t, shadows) {
+  const C = CUES.tiers[k], spawn = C.spawn[i];
+  if (t < spawn) return null;
+  const g = PET[k][i], F = C.flight, p = clamp((t - spawn) / F), landT = spawn + F;
+  const e = eOutC(p);
+  const dX = g.cx - g.ox, dY = g.cy - g.oy, len = Math.hypot(dX, dY) || 1;
+  const arc = g.swirl * Math.sin(Math.PI * e) * Math.min(14, len * 0.18);
+  const cxn = lerp(g.ox, g.cx, e) + (-dY / len) * arc, cyn = lerp(g.oy, g.cy, e) + (dX / len) * arc;
+  const lift = 26 * Math.sin(Math.PI * p) * (p < 1 ? 1 : 0);
+  const sc = lerp(0.3, 1, eOutB(p, 0.8));
+  const te = (t - landT) / C.extrude;
+  const gh = te < 0 ? 0.05 : lerp(0.05, 1, eOutB(te, 1.5));
+  const pts = g.pts.map(q => [cxn + (q[0] - g.cx) * sc, cyn + (q[1] - g.cy) * sc]);
+  const ztop = g.zs.map(z => lift + Math.max(1.0, z * gh));
+  const alpha = sm(0, 0.08, p);
+  const capOn = (t >= landT + C.cap_lag) || p < 1;
+  if (lift > 1.5) shadows.push({ pts, a: 0.16 * clamp(lift / 14) * alpha });
+  const mid = g.zs[6] * Math.min(1, gh) * 0.5 + lift;
+  const item = {
+    d: cxn + cyn + mid, f: () => {
+      ctx.globalAlpha = alpha;
+      const base = COL.petal[k];
+      const settle = te > 0 && te < 0.25 ? 0.07 * Math.sin(te * 4 * Math.PI) : 0;
+      if (!capOn) fillPoly(pts.map(q => P(q[0], q[1], lift + 0.2)), 'rgba(92,76,104,0.65)', null);
+      prism(pts, lift, ztop, rgb(base[0], base[1], base[2]), base, 'rgba(255,255,255,0.55)', capOn);
+      if (capOn && gh > 0.9) {
+        ctx.strokeStyle = 'rgba(150,126,112,0.30)'; ctx.lineWidth = 1;
+        for (const row of g.rows) {
+          ctx.beginPath();
+          row.forEach((q, qi) => { const pp = P(cxn + (q[0] - g.cx) * sc, cyn + (q[1] - g.cy) * sc, lift + q[2] * gh); qi ? ctx.lineTo(pp[0], pp[1]) : ctx.moveTo(pp[0], pp[1]); });
+          ctx.stroke();
+        }
+      }
+      // magnetic lock flash at the landing instant
+      const fl = 1 - clamp((t - landT) / 0.12);
+      if (t >= landT && fl > 0) {
+        const c = P(g.cx, g.cy, Math.max(1, g.zs[6] * gh));
+        ctx.globalCompositeOperation = 'lighter';
+        const rg = ctx.createRadialGradient(c[0], c[1], 0, c[0], c[1], 34);
+        rg.addColorStop(0, rgb(255, 224, 170, 0.45 * fl)); rg.addColorStop(1, rgb(255, 224, 170, 0));
+        ctx.fillStyle = rg; ctx.fillRect(c[0] - 34, c[1] - 34, 68, 68);
+        ctx.globalCompositeOperation = 'source-over';
+      }
+      ctx.globalAlpha = 1;
+    }
+  };
+  return item;
+}
+function roofDraw(i, t, shadows) {
+  const R = CUES.roof, spawn = R.spawn[i];
+  if (t < spawn) return null;
+  const g = ROOF[i], F = R.flight, p = clamp((t - spawn) / F), landT = R.land[i];
+  const e = eOutC(p);
+  const dX = g.cx - g.ox, dY = g.cy - g.oy, len = Math.hypot(dX, dY) || 1;
+  const arc = (i % 2 ? -1 : 1) * Math.sin(Math.PI * e) * Math.min(16, len * 0.16);
+  const cxn = lerp(g.ox, g.cx, e) + (-dY / len) * arc, cyn = lerp(g.oy, g.cy, e) + (dX / len) * arc;
+  const zFinal = (ROOFT.z0 + ROOFT.z1) / 2;
+  const zoff = lerp(-(zFinal - 6), 0, e) + 12 * Math.sin(Math.PI * p) + (p >= 1 ? 0.9 * Math.exp(-14 * (t - landT)) * Math.sin(40 * (t - landT)) : 0);
+  const sc = lerp(0.3, 1, eOutB(p, 0.9));
+  const pts = g.pts.map(q => [cxn + (q[0] - g.cx) * sc, cyn + (q[1] - g.cy) * sc]);
+  const ztop = g.zs.map(z => z + zoff), zbot = ztop.map(z => z - 1.0);
+  const alpha = sm(0, 0.1, p);
+  if (zoff < -3) shadows.push({ pts, a: 0.10 * alpha });
+  const isFinal = (i === R.final_index);
+  return {
+    d: cxn + cyn + zFinal + zoff + 0.5, f: () => {
+      ctx.globalAlpha = alpha;
+      prism(pts, zbot, ztop, rgb(COL.roof[0], COL.roof[1], COL.roof[2]), [236, 226, 212], 'rgba(255,255,255,0.8)', true);
+      if (p >= 1 || zoff > -2) {
+        // perforations
+        ctx.fillStyle = 'rgba(112,106,128,0.58)';
+        for (const hl of g.holes) {
+          const c = P(cxn + (hl[0] - g.cx) * sc, cyn + (hl[1] - g.cy) * sc, hl[2] + zoff);
+          ctx.beginPath(); ctx.ellipse(c[0], c[1], ERX * 0.72, ERY * 0.72, 0, 0, 6.283); ctx.fill();
+        }
+      }
+      // lock flash
+      const fl = 1 - clamp((t - landT) / (isFinal ? 0.5 : 0.14));
+      if (t >= landT && fl > 0) {
+        const c = P(g.cx, g.cy, zFinal);
+        const rr = isFinal ? 130 : 44;
+        ctx.globalCompositeOperation = 'lighter';
+        const rg = ctx.createRadialGradient(c[0], c[1], 0, c[0], c[1], rr);
+        rg.addColorStop(0, rgb(255, 232, 186, (isFinal ? 0.8 : 0.5) * fl)); rg.addColorStop(1, rgb(255, 232, 186, 0));
+        ctx.fillStyle = rg; ctx.fillRect(c[0] - rr, c[1] - rr, rr * 2, rr * 2);
+        ctx.globalCompositeOperation = 'source-over';
+      }
+      ctx.globalAlpha = 1;
+    }
+  };
+}
+
+// ------------------------------------------------------------------ trusses, facade, ramps, scaffolding, halo
+function trussDraw(i, t) {
+  const T = TR[i], sp = CUES.trusses.spawn[i], pg = eOutC((t - sp) / CUES.trusses.grow);
+  if (pg <= 0) return null;
+  return {
+    d: T.depth, f: () => {
+      const stroke = (pts, prog, w) => {
+        const n = pts.length - 1, upto = prog * n; if (upto <= 0) return;
+        const sp2 = [];
+        for (let q = 0; q <= Math.ceil(upto) && q <= n; q++) {
+          let pt = pts[q];
+          if (q > upto) { const a = pts[q - 1], f = upto - (q - 1); pt = [lerp(a[0], pt[0], f), lerp(a[1], pt[1], f), lerp(a[2], pt[2], f)]; }
+          sp2.push(P(pt[0], pt[1], pt[2]));
+        }
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        ctx.beginPath(); sp2.forEach((p, q) => q ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]));
+        ctx.strokeStyle = 'rgba(86,58,42,0.55)'; ctx.lineWidth = w + 1.8; ctx.stroke();
+        ctx.beginPath(); sp2.forEach((p, q) => q ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]));
+        ctx.strokeStyle = rgb(COL.bronze[0], COL.bronze[1], COL.bronze[2]); ctx.lineWidth = w; ctx.stroke();
+        ctx.beginPath(); sp2.forEach((p, q) => q ? ctx.lineTo(p[0] - 0.8, p[1] - 0.8) : ctx.moveTo(p[0] - 0.8, p[1] - 0.8));
+        ctx.strokeStyle = 'rgba(250,214,164,0.9)'; ctx.lineWidth = w * 0.32; ctx.stroke();
+        // ribs
+        ctx.strokeStyle = 'rgba(86,58,42,0.55)'; ctx.lineWidth = 1;
+        for (let q = 1; q < sp2.length - 1; q += 2) {
+          const a = sp2[q - 1], b = sp2[q + 1]; let nx = -(b[1] - a[1]), ny = b[0] - a[0]; const l = Math.hypot(nx, ny) || 1; nx = nx / l * (w * 0.62); ny = ny / l * (w * 0.62);
+          ctx.beginPath(); ctx.moveTo(sp2[q][0] - nx, sp2[q][1] - ny); ctx.lineTo(sp2[q][0] + nx, sp2[q][1] + ny); ctx.stroke();
+        }
+      };
+      stroke(T.main, pg, 3.6);
+      for (const b of T.branches) stroke(b.pts, clamp((pg - b.sb) / (1 - b.sb)), 2.2);
+    }
+  };
+}
+function facadeDraw(i, t) {
+  const F = FAC[i], sp = CUES.facade.spawn[i], gh = eOutB((t - sp) / CUES.facade.grow, 1.3);
+  if (t < sp) return null;
+  return {
+    d: F.depth, f: () => {
+      const pts = [];
+      for (const b of F.bot) pts.push(P(b[0], b[1], 0));
+      for (let q = F.top.length - 1; q >= 0; q--) { const tp = F.top[q]; pts.push(P(tp[0], tp[1], tp[2] * gh)); }
+      const sheen = Math.pow(Math.max(0, Math.sin(6.283 * (t * 0.12 - F.a / 6.283 * 3))), 6);
+      fillPoly(pts, 'rgba(176,222,226,0.30)', 'rgba(255,255,255,0.55)', 1.2);
+      if (sheen > 0.02) fillPoly(pts, `rgba(255,255,255,${0.22 * sheen})`, null);
+      // flowing mullion lines
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1;
+      for (const idx of [1]) {
+        const bt = F.bot[idx], tp = F.top[idx], a = P(bt[0], bt[1], 0), b = P(tp[0], tp[1], tp[2] * gh);
+        ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+      }
+    }
+  };
+}
+function rampDraw(r, t) {
+  const R = RAMPS[r], sp = CUES.ramps.spawn[r], pg = eOutC((t - sp) / CUES.ramps.grow);
+  if (pg <= 0) return null;
+  return {
+    d: R.depth, f: () => {
+      const bob = 0.5 * Math.sin(6.283 * (t * 0.45 + R.phase));
+      const n = R.quads.length, upto = pg * n;
+      for (let q = 0; q < n && q < upto; q++) {
+        const qd = R.quads[q], f = Math.min(1, upto - q);
+        const mk = (pt, z0) => [pt[0], pt[1], pt[2] + bob];
+        const A = mk(qd[0].L), B = mk(qd[1].L), C = mk(qd[1].R), D = mk(qd[0].R);
+        const lerpP = (u, v) => [lerp(u[0], v[0], f), lerp(u[1], v[1], f), lerp(u[2], v[2], f)];
+        const B2 = lerpP(A, B), C2 = lerpP(D, C);
+        // underside skirts (visible edges), then deck
+        const th = 0.9;
+        const sk = (p, q2, col) => fillPoly([P(p[0], p[1], p[2]), P(q2[0], q2[1], q2[2]), P(q2[0], q2[1], q2[2] - th), P(p[0], p[1], p[2] - th)], col, col, 0.6);
+        sk(A, B2, sh([226, 212, 192], 0.55)); sk(D, C2, sh([226, 212, 192], 0.95));
+        fillPoly([P(A[0], A[1], A[2]), P(B2[0], B2[1], B2[2]), P(C2[0], C2[1], C2[2]), P(D[0], D[1], D[2])], rgb(246, 238, 224), 'rgba(255,255,255,0.6)', 0.8);
+      }
+      // rails
+      ctx.strokeStyle = 'rgba(190,150,110,0.9)'; ctx.lineWidth = 1.4; ctx.lineCap = 'round';
+      for (const side of ['L', 'R']) {
+        ctx.beginPath();
+        let started = false;
+        for (let q = 0; q <= n; q++) {
+          if (q > upto) break;
+          const qd = q < n ? R.quads[q][0][side] : R.quads[n - 1][1][side];
+          const p = P(qd[0], qd[1], qd[2] + bob + 1.3);
+          started ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]); started = true;
+        }
+        ctx.stroke();
+      }
+    }
+  };
+}
+function postDraw(i, t) {
+  const Pst = POSTS[i], t0 = CUES.scaffold.start + (i / POSTS.length) * (CUES.scaffold.end - CUES.scaffold.start);
+  const gh = eOutC((t - t0) / 0.4); if (gh <= 0) return null;
+  return {
+    d: Pst.X + Pst.Y + Pst.h * 0.4, f: () => {
+      const a = P(Pst.X, Pst.Y, 0), b = P(Pst.X, Pst.Y, Pst.h * gh);
+      ctx.strokeStyle = 'rgba(96,82,80,0.82)'; ctx.lineWidth = 1.7; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+      const nx = POSTS[(i + 1) % POSTS.length];
+      if (gh > 0.55) {
+        const r1 = P(Pst.X, Pst.Y, Pst.h * 0.62), r2 = P(nx.X, nx.Y, Pst.h * 0.62), r3 = P(nx.X, nx.Y, 0.2);
+        ctx.lineWidth = 1.1; ctx.beginPath(); ctx.moveTo(r1[0], r1[1]); ctx.lineTo(r2[0], r2[1]); ctx.stroke();
+        ctx.strokeStyle = 'rgba(96,82,80,0.5)'; ctx.beginPath(); ctx.moveTo(r1[0], r1[1]); ctx.lineTo(r3[0], r3[1]); ctx.stroke();
+      }
+    }
+  };
+}
+function haloDraw(t) {
+  const q = eInOutC((t - CUES.halo.start) / (CUES.halo.end - CUES.halo.start));
+  if (q <= 0) return null;
+  const aft = sm(CUES.final, CUES.final + 0.7, t);
+  return {
+    d: 17.3, f: () => {
+      const R = 24 * (1 + 0.035 * Math.exp(-4 * Math.max(0, t - CUES.final)) * (t > CUES.final ? 1 : 0)), zc = 16 + 0.5 * Math.sin(t * 1.6) + 2.0 * aft;
+      const a0 = 225 * Math.PI / 180;
+      const pts = [];
+      const N = 90, span = q * Math.PI;
+      for (let n = 0; n <= N; n++) {
+        const th = a0 - span + (2 * span) * n / N;
+        pts.push(P(R * Math.cos(th), R * Math.sin(th), zc));
+      }
+      const path = () => { ctx.beginPath(); pts.forEach((p, n) => n ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); };
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.globalCompositeOperation = 'lighter';
+      path(); ctx.strokeStyle = rgb(255, 190, 90, 0.20 + 0.18 * aft); ctx.lineWidth = 16; ctx.stroke();
+      path(); ctx.strokeStyle = rgb(255, 214, 140, 0.35 + 0.25 * aft); ctx.lineWidth = 7; ctx.stroke();
+      ctx.globalCompositeOperation = 'source-over';
+      path(); ctx.strokeStyle = 'rgba(255,252,244,0.98)'; ctx.lineWidth = 3.2; ctx.stroke();
+      // travelling LED dots
+      ctx.fillStyle = 'rgba(255,170,60,0.95)';
+      for (let n = 0; n < 24; n++) {
+        const th = a0 - span + (2 * span) * ((n / 24 + t * 0.05) % 1);
+        const p = P(R * Math.cos(th), R * Math.sin(th), zc + 0.2);
+        ctx.beginPath(); ctx.arc(p[0], p[1], 1.9, 0, 6.283); ctx.fill();
+      }
+    }
+  };
+}
+
+// ------------------------------------------------------------------ light & atmosphere
+function drawContainerGlow(t) {
+  const I = 0.38 * sm(1.0, 1.45, t) * (1 - sm(CUES.split, CUES.split + 0.1, t)) + sm(CUES.split, CUES.split + 0.2, t) * (1 - sm(2.6, 4.4, t));
+  if (I <= 0.005) return;
+  const c = P(0, 0, 7);
+  ctx.globalCompositeOperation = 'lighter';
+  const R = 120 + 300 * I;
+  const rg = ctx.createRadialGradient(c[0], c[1], 0, c[0], c[1], R);
+  rg.addColorStop(0, rgb(255, 238, 200, 0.85 * I)); rg.addColorStop(0.35, rgb(255, 200, 120, 0.38 * I)); rg.addColorStop(1, rgb(255, 180, 90, 0));
+  ctx.fillStyle = rg; ctx.fillRect(c[0] - R, c[1] - R, R * 2, R * 2);
+  // pulse of light and air at the split
+  const f = (t - CUES.split) / 0.45;
+  if (f > 0 && f < 1) {
+    const rr = 80 + 700 * eOutC(f);
+    const rg2 = ctx.createRadialGradient(c[0], c[1], rr * 0.6, c[0], c[1], rr);
+    rg2.addColorStop(0, rgb(255, 244, 220, 0)); rg2.addColorStop(0.8, rgb(255, 244, 220, 0.30 * (1 - f))); rg2.addColorStop(1, rgb(255, 244, 220, 0));
+    ctx.fillStyle = rg2; ctx.fillRect(c[0] - rr, c[1] - rr, rr * 2, rr * 2);
+  }
+  ctx.globalCompositeOperation = 'source-over';
+}
+function drawBeam(t) {
+  const b = sm(CUES.beam.start, CUES.beam.full, t);
+  if (b <= 0.002) return;
+  const D = P(0, 0, 0.3), camx = OX - 960;
+  const T0 = [1280 + camx * 0.4, -60 + 150 * 0];     // up toward the sun
+  const dxv = T0[0] - D[0], dyv = T0[1] - D[1], len = Math.hypot(dxv, dyv);
+  const ux = dxv / len, uy = dyv / len, nxp = -uy, nyp = ux;   // perpendicular
+  const wd = 118;
+  ctx.globalCompositeOperation = 'lighter';
+  const g = ctx.createLinearGradient(D[0], D[1], T0[0], T0[1]);
+  g.addColorStop(0, 'rgba(255,238,196,1)'); g.addColorStop(0.5, 'rgba(255,232,180,0.5)'); g.addColorStop(1, 'rgba(255,232,180,0.06)');
+  ctx.fillStyle = g;
+  // stacked soft-edged layers: wide + faint to narrow + bright
+  const NL = 14;
+  for (let k = 0; k < NL; k++) {
+    const w = wd * (1 - 0.88 * k / (NL - 1));
+    ctx.globalAlpha = 0.021 * b;
+    ctx.beginPath();
+    ctx.moveTo(D[0] + nxp * w * 0.6, D[1] + nyp * w * 0.6); ctx.lineTo(T0[0] + nxp * w, T0[1] + nyp * w);
+    ctx.lineTo(T0[0] - nxp * w, T0[1] - nyp * w); ctx.lineTo(D[0] - nxp * w * 0.6, D[1] - nyp * w * 0.6); ctx.closePath(); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  // volumetric streaks
+  for (let k = 0; k < 6; k++) {
+    const off = (k - 2.5) / 3 * wd * 0.7 + 6 * Math.sin(t * 0.6 + k * 1.9);
+    const a = 0.07 * b * (0.6 + 0.4 * Math.sin(t * 0.9 + k * 2.3));
+    ctx.strokeStyle = rgb(255, 244, 214, a); ctx.lineWidth = 4 + (k % 3) * 3;
+    ctx.beginPath(); ctx.moveTo(D[0] + nxp * off * 0.6, D[1] + nyp * off * 0.6); ctx.lineTo(T0[0] + nxp * off, T0[1] + nyp * off); ctx.stroke();
+  }
+  // glow pool on the field
+  const rg = ctx.createRadialGradient(D[0], D[1], 0, D[0], D[1], 210);
+  rg.addColorStop(0, rgb(255, 236, 190, 0.34 * b)); rg.addColorStop(0.5, rgb(255, 214, 150, 0.16 * b)); rg.addColorStop(1, rgb(255, 208, 140, 0));
+  ctx.save(); ctx.translate(D[0], D[1]); ctx.scale(1, 0.58); ctx.translate(-D[0], -D[1]);
+  ctx.fillStyle = rg; ctx.fillRect(D[0] - 240, D[1] - 240, 480, 480);
+  ctx.restore();
+  ctx.globalCompositeOperation = 'source-over';
+  // dust motes riding the shaft
+  for (const m of MOTES) {
+    const f = (m.ph + t * m.sp) % 1, bx = lerp(D[0], T0[0], f), by = lerp(D[1], T0[1], f);
+    const lat = m.lat * wd * lerp(0.55, 1, f);
+    const x = bx + nxp * lat, y = by + nyp * lat;
+    const a = b * (0.35 + 0.35 * Math.sin(t * 2 + m.tw)) * Math.sin(Math.PI * f);
+    ctx.fillStyle = rgb(255, 248, 226, Math.max(0, a)); ctx.beginPath(); ctx.arc(x, y, m.sz, 0, 6.283); ctx.fill();
+  }
+}
+function drawPortals(t) {
+  ctx.globalCompositeOperation = 'lighter';
+  PORTAL_IDX.forEach((idx, k) => {
+    const op = sm(CUES.portals.open[k], CUES.portals.open[k] + 0.25, t);
+    if (op <= 0) return;
+    const g = ROOF[idx], zc = (ROOFT.z0 + ROOFT.z1) / 2 + 0.6;
+    const hp = g.holes[4];                           // the middle hole becomes a sky portal
+    const c = P(hp[0], hp[1], hp[2] + 0.2);
+    const rg = ctx.createRadialGradient(c[0], c[1], 0, c[0], c[1], 13);
+    rg.addColorStop(0, rgb(255, 250, 232, 0.8 * op)); rg.addColorStop(1, rgb(255, 232, 180, 0));
+    ctx.fillStyle = rg; ctx.fillRect(c[0] - 13, c[1] - 13, 26, 26);
+    // filtered light falling below the panel
+    const after = sm(CUES.final, CUES.final + 0.5, t);
+    if (after > 0) {
+      const base = P(hp[0], hp[1], 6.0);
+      const lg = ctx.createLinearGradient(c[0], c[1], base[0], base[1]);
+      lg.addColorStop(0, rgb(255, 240, 200, 0.16 * after)); lg.addColorStop(1, rgb(255, 240, 200, 0));
+      ctx.fillStyle = lg;
+      ctx.beginPath(); ctx.moveTo(c[0] - 3, c[1]); ctx.lineTo(c[0] + 3, c[1]); ctx.lineTo(base[0] + 7, base[1]); ctx.lineTo(base[0] - 7, base[1]); ctx.closePath(); ctx.fill();
+    }
+  });
+  ctx.globalCompositeOperation = 'source-over';
+}
+function drawFog(t) {
+  // fog wrapping the basin rim (radial gradient mapped through the iso projection)
+  ctx.save();
+  ctx.setTransform(KX * RX, KY * RX, -KX * RY, KY * RY, OX, OY);
+  let rg = ctx.createRadialGradient(0, 0, 1.12, 0, 0, 1.62);
+  rg.addColorStop(0, 'rgba(246,228,204,0)'); rg.addColorStop(0.32, 'rgba(246,230,208,0.42)'); rg.addColorStop(0.55, 'rgba(246,230,208,0.50)'); rg.addColorStop(1, 'rgba(246,230,208,0)');
+  ctx.fillStyle = rg; ctx.fillRect(-3, -3, 6, 6);
+  ctx.restore();
+  // drifting low fog banks (parallax in front)
+  const cam = OX - 960;
+  for (let n = 0; n < 5; n++) {
+    const bx = ((n * 520 + t * (10 + n * 3) + cam * 1.3) % 2600) - 340, by = 840 + (n % 3) * 70;
+    const rg2 = ctx.createRadialGradient(bx, by, 0, bx, by, 360);
+    rg2.addColorStop(0, 'rgba(250,236,216,0.30)'); rg2.addColorStop(1, 'rgba(250,236,216,0)');
+    ctx.save(); ctx.translate(bx, by); ctx.scale(1, 0.28); ctx.translate(-bx, -by);
+    ctx.fillStyle = rg2; ctx.fillRect(bx - 380, by - 380, 760, 760); ctx.restore();
+  }
+}
+function drawGrade(t) {
+  const vg = ctx.createRadialGradient(W / 2, H / 2 + 20, 430, W / 2, H / 2, 1180);
+  vg.addColorStop(0, 'rgba(96,70,110,0)'); vg.addColorStop(1, 'rgba(96,70,110,0.28)');
+  ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+  // golden-hour split: warm light from the upper right, cool shade falling to the lower left
+  const wg = ctx.createLinearGradient(W, 0, 0, H);
+  wg.addColorStop(0, 'rgba(255,210,150,0.10)'); wg.addColorStop(0.5, 'rgba(255,210,150,0)'); wg.addColorStop(1, 'rgba(100,80,140,0.20)');
+  ctx.fillStyle = wg; ctx.fillRect(0, 0, W, H);
+}
+
+// ------------------------------------------------------------------ frame
+window.renderAt = async function (t) {
+  OX = 960 + (-26 + 52 * (t / 10)); OY = 650;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+  drawSky(t);
+  drawBasin(t);
+  drawGroundFX(t);
+  drawRoots(t);
+  drawField(t);
+  const shadows = [], items = [];
+  // container
+  items.push({ d: 0.2, f: () => containerDraw(t) });
+  for (let k = 0; k < 3; k++) for (let i = 0; i < NSEG; i++) { const it = petalDraw(k, i, t, shadows); if (it) items.push(it); }
+  for (let i = 0; i < NSEG; i++) { const it = roofDraw(i, t, shadows); if (it) items.push(it); }
+  for (let i = 0; i < TR.length; i++) { const it = trussDraw(i, t); if (it) items.push(it); }
+  for (let i = 0; i < FAC.length; i++) { const it = facadeDraw(i, t); if (it) items.push(it); }
+  for (let i = 0; i < RAMPS.length; i++) { const it = rampDraw(i, t); if (it) items.push(it); }
+  for (let i = 0; i < POSTS.length; i++) { const it = postDraw(i, t); if (it) items.push(it); }
+  const hl = haloDraw(t); if (hl) items.push(hl);
+  for (const s of shadows) fillPoly(s.pts.map(p => P(p[0], p[1], 0.15)), `rgba(70,54,84,${s.a})`, null);
+  items.sort((a, b) => a.d - b.d);
+  for (const it of items) it.f();
+  drawContainerGlow(t);
+  drawPortals(t);
+  drawBeam(t);
+  drawFog(t);
+  drawGrade(t);
+};
+
+await document.fonts.ready;
+window.__ready = true;
+})();
+</script>
+</body>
+</html>
