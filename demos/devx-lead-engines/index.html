@@ -1,0 +1,303 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>DevX AI Lead Engines — 15s</title>
+<link rel="stylesheet" href="/assets/fonts/fonts.css">
+<style>
+html,body{margin:0;padding:0;background:#F5F7FA;overflow:hidden;width:1920px;height:1080px}
+canvas{display:block}
+</style></head>
+<body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script>
+window.DEMO = { width: 1920, height: 1080, fps: 30, duration: 15 };
+</script>
+<script type="module">
+// ============================================================ brand + utils
+const C = { PAGE:'#F5F7FA', IND:'#4F46E5', INDD:'#3F38C4', LIME:'#2DD54A', VIO:'#7C3AED', INK:'#14162B', BODY:'#3A3D4D',
+  LINE:'#E3E6EE', GREY:'#C5CAD6', WHITE:'#FFFFFF', TINT:'#E8E6FD' };
+const SYNE = "'Syne', sans-serif", DM = "'DM Sans', sans-serif";
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const W = 1920, H = 1080;
+
+function bezier(x1, y1, x2, y2) {
+  const cx = 3*x1, bx = 3*(x2-x1)-cx, ax = 1-cx-bx, cy = 3*y1, by = 3*(y2-y1)-cy, ay = 1-cy-by;
+  const sx = t => ((ax*t+bx)*t+cx)*t, sy = t => ((ay*t+by)*t+cy)*t, dx = t => (3*ax*t+2*bx)*t+cx;
+  return x => {
+    if (x <= 0) return 0; if (x >= 1) return 1;
+    let t = x;
+    for (let i = 0; i < 8; i++) { const e = sx(t)-x; if (Math.abs(e) < 1e-6) break; const d = dx(t); if (Math.abs(d) < 1e-6) break; t -= e/d; }
+    let lo = 0, hi = 1; if (t < 0 || t > 1) { t = x; for (let i = 0; i < 30; i++) { const v = sx(t); if (v < x) lo = t; else hi = t; t = (lo+hi)/2; } }
+    return sy(t);
+  };
+}
+const E = { pop: bezier(0.34,1.56,0.64,1), out: bezier(0.22,1,0.36,1), inout: bezier(0.65,0,0.35,1), in: bezier(0.6,-0.28,0.735,0.045) };
+const clamp = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b-a)*t;
+const prog = (t, t0, d) => clamp((t-t0)/d);
+const pp = (t, t0, d = 0.55) => E.pop(prog(t, t0, d));
+const BEAT0 = 0.58, BEAT = 0.5345;
+const pulse = t => { if (t < BEAT0) return 0; const ph = ((t-BEAT0)/BEAT) % 1; return Math.exp(-ph*6); };
+
+function mix(c1, c2, k) {
+  const a = [1,3,5].map(i => parseInt(c1.slice(i, i+2), 16)), b = [1,3,5].map(i => parseInt(c2.slice(i, i+2), 16));
+  return '#' + a.map((v, i) => Math.round(lerp(v, b[i], k)).toString(16).padStart(2, '0')).join('');
+}
+function rr(x, y, w, h, r) {
+  r = Math.min(r, w/2, h/2);
+  ctx.beginPath(); ctx.moveTo(x+r, y); ctx.arcTo(x+w, y, x+w, y+h, r); ctx.arcTo(x+w, y+h, x, y+h, r);
+  ctx.arcTo(x, y+h, x, y, r); ctx.arcTo(x, y, x+w, y, r); ctx.closePath();
+}
+function circle(x, y, r, fill) { if (r <= 0) return; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fillStyle = fill; ctx.fill(); }
+function txt(s, x, y, font, color, align = 'left', spacing = 0) {
+  ctx.font = font; ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = 'alphabetic';
+  ctx.letterSpacing = spacing + 'px'; ctx.fillText(s, x, y); ctx.letterSpacing = '0px';
+}
+function mw(s, font, spacing = 0) { ctx.font = font; ctx.letterSpacing = spacing + 'px'; const w = ctx.measureText(s).width; ctx.letterSpacing = '0px'; return w; }
+function fit(s, weight, fam, maxW, maxSize) { const w100 = mw(s, `${weight} 100px ${fam}`); return Math.min(maxSize, maxW / w100 * 100); }
+function wrap(s, font, maxW) {
+  ctx.font = font; const words = s.split(' '), lines = []; let cur = '';
+  for (const w of words) { const t = cur ? cur + ' ' + w : w; if (ctx.measureText(t).width > maxW && cur) { lines.push(cur); cur = w; } else cur = t; }
+  if (cur) lines.push(cur); return lines;
+}
+function wave(y, amp, len, phase, color, w, alpha = 1) {
+  ctx.save(); ctx.globalAlpha = alpha; ctx.beginPath();
+  for (let x = -20; x <= W+20; x += 16) { const yy = y + Math.sin(x/len*Math.PI*2 + phase)*amp; x === -20 ? ctx.moveTo(x, yy) : ctx.lineTo(x, yy); }
+  ctx.strokeStyle = color; ctx.lineWidth = w; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.stroke(); ctx.restore();
+}
+
+// ============================================================ assets
+const cues = await (await fetch('/demos/devx-lead-engines/cues.json')).json();
+const T = cues.t;
+const logo = new Image(); logo.src = '/assets/brands/devx/logos/Devx logo S light.png';
+await Promise.all([
+  document.fonts.load(`700 100px ${SYNE}`, 'Devx AI Lead Engines 4-hour'),
+  document.fonts.load(`600 40px ${DM}`, 'Buying more ads'), document.fonts.load(`500 40px ${DM}`, 'Custom AI agents'),
+  document.fonts.load(`700 40px ${DM}`, 'Reply to schedule'),
+  logo.decode(),
+]);
+await document.fonts.ready;
+
+// fitted sizes
+const HL3 = ['to ', '4-hour', ' response delays.'];
+const S1 = Math.min(100, fit(HL3.join(''), 700, SYNE, 1680, 100));
+const TITLE_S = fit('Devx AI Lead Engines', 700, SYNE, 1300, 104);
+
+// ============================================================ shared pieces
+function person(cx, cy, s, color) {
+  circle(cx, cy - 15*s, 15*s, color);
+  ctx.beginPath(); ctx.moveTo(cx - 28*s, cy + 30*s); ctx.quadraticCurveTo(cx - 28*s, cy + 4*s, cx, cy + 4*s);
+  ctx.quadraticCurveTo(cx + 28*s, cy + 4*s, cx + 28*s, cy + 30*s); ctx.closePath(); ctx.fillStyle = color; ctx.fill();
+}
+function reveal(p, baseline, size, fn) {
+  if (p <= 0) return;
+  ctx.save(); ctx.beginPath(); ctx.rect(0, baseline - size*0.95, W, size*1.3); ctx.clip();
+  ctx.translate(0, (1-p)*size*0.95); fn(); ctx.restore();
+}
+
+// ============================================================ SCENE 1 — the problem
+const LEADX = i => 190 + i*205, LEADY = 735, NLEAD = 7;
+const CLK = { x: 1640, y: 690, r: 130 };
+function scene1(t) {
+  ctx.fillStyle = C.PAGE; ctx.fillRect(0, 0, W, H);
+  // motif waves
+  const ph = t*0.9;
+  wave(1005, 22, 720, ph, C.VIO, 4, 0.55);
+  wave(1015, 22, 640, ph + 1.2, C.LIME, 12);
+  wave(1040, 22, 780, ph + 2.4, C.IND, 12);
+
+  // eyebrow
+  const eb = E.out(prog(t, T.eyebrow, 0.5));
+  ctx.save(); ctx.globalAlpha = eb;
+  txt('DEVX AI LEAD ENGINES', 120, 140 + (1-eb)*16, `600 28px ${DM}`, C.IND, 'left', 5); ctx.restore();
+
+  // headline
+  const b1 = 270, b2 = b1 + S1*1.12, b3 = b2 + S1*1.12;
+  const f = `700 ${S1}px ${SYNE}`;
+  reveal(E.out(prog(t, T.line1, 0.6)), b1, S1, () => txt('Stop losing', 120, b1, f, C.INK));
+  reveal(E.out(prog(t, T.line2, 0.6)), b2, S1, () => txt('high-value leads', 120, b2, f, C.INK));
+  reveal(E.out(prog(t, T.line3, 0.55)), b3, S1, () => {
+    let x = 120;
+    txt(HL3[0], x, b3, f, C.INK); x += mw(HL3[0], f);
+    const w4 = mw(HL3[1], f); const g = ctx.createLinearGradient(x, 0, x + w4, 0);
+    g.addColorStop(0, C.IND); g.addColorStop(0.6, C.IND); g.addColorStop(1, C.LIME);
+    txt(HL3[1], x, b3, f, g);
+    // underline squiggle under 4-hour
+    ctx.beginPath(); for (let i = 0; i <= 40; i++) { const xx = x + w4*i/40, yy = b3 + 22 + Math.sin(i*0.9)*5; i ? ctx.lineTo(xx, yy) : ctx.moveTo(xx, yy); }
+    ctx.strokeStyle = C.LIME; ctx.lineWidth = 8; ctx.lineCap = 'round'; ctx.stroke();
+    x += w4; txt(HL3[2], x, b3, f, C.INK);
+  });
+
+  // track
+  const trk = E.out(prog(t, 0.9, 0.7));
+  if (trk > 0) { rr(LEADX(0) - 90, LEADY + 78, (LEADX(NLEAD-1) - LEADX(0) + 180)*trk, 14, 7); ctx.fillStyle = C.LINE; ctx.fill(); }
+
+  // leads
+  for (let i = 0; i < NLEAD; i++) {
+    const t0 = T.leadStart + i*T.leadStep;
+    let s = pp(t, t0, 0.5); if (s <= 0.001) continue;
+    const gk = E.out(prog(t, T.grey + i*0.07, 0.25));
+    const ex = prog(t, T.exitStart + i*0.05, 0.45), exe = E.in(ex);
+    if (ex >= 1) continue;
+    const bob = gk < 0.05 ? 1 + 0.035*pulse(t) : 1;
+    const col = mix(C.LIME, C.GREY, gk);
+    ctx.save(); ctx.translate(LEADX(i) + exe*-60, LEADY + exe*520); ctx.rotate(exe*-0.5*(i%2 ? 1 : -1)); ctx.scale(s*bob, s*bob);
+    ctx.globalAlpha = 1 - exe*0.2;
+    circle(0, 0, 66, col); person(0, 4, 1.15, C.WHITE);
+    const nb = pp(t, t0 + 0.25, 0.4) * (1 - gk);   // "new" badge
+    if (nb > 0.01) { circle(46, -46, 17*nb, C.IND); circle(46, -46, 6*nb, C.WHITE); }
+    ctx.restore();
+  }
+
+  // clock badge
+  const cs = pp(t, T.clock, 0.6);
+  if (cs > 0.001) {
+    ctx.save(); ctx.translate(CLK.x, CLK.y); ctx.scale(cs, cs);
+    circle(0, 0, CLK.r + 14, C.LIME); circle(0, 0, CLK.r, C.IND); circle(0, 0, CLK.r - 22, C.WHITE);
+    for (let k = 0; k < 12; k++) { const a = k*Math.PI/6; ctx.beginPath(); ctx.moveTo(Math.sin(a)*(CLK.r-34), -Math.cos(a)*(CLK.r-34)); ctx.lineTo(Math.sin(a)*(CLK.r-46), -Math.cos(a)*(CLK.r-46)); ctx.strokeStyle = C.INK; ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.stroke(); }
+    const tt = Math.max(0, t - T.clock - 0.2);
+    const hand = (ang, len, w, col) => { ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.sin(ang)*len, -Math.cos(ang)*len); ctx.strokeStyle = col; ctx.lineWidth = w; ctx.lineCap = 'round'; ctx.stroke(); };
+    const spin = E.inout(clamp(tt/1.4)) * Math.PI*8 + tt*3;
+    hand(spin, CLK.r - 44, 8, C.INK); hand(spin/12 + 0.4, CLK.r - 70, 11, C.IND);
+    circle(0, 0, 12, C.LIME);
+    ctx.restore();
+    // "4 HR" tag
+    const ts = pp(t, T.clock + 0.2, 0.5);
+    if (ts > 0.001) {
+      ctx.save(); ctx.translate(CLK.x, CLK.y + CLK.r + 62); ctx.scale(ts, ts);
+      rr(-92, -34, 184, 68, 34); ctx.fillStyle = C.INK; ctx.fill();
+      txt('4 HR', 0, 14, `700 38px ${SYNE}`, C.WHITE, 'center', 2); ctx.restore();
+    }
+  }
+
+  // caption
+  const cp = E.out(prog(t, T.caption, 0.5));
+  if (cp > 0) { ctx.save(); ctx.globalAlpha = cp; txt("Buying more ads won't fix a leaky bucket.", 120, 905 + (1-cp)*24, `600 44px ${DM}`, C.BODY); ctx.restore(); }
+}
+
+// ============================================================ SCENE 2 — the solution
+const CARDS = [
+  { n: '1', title: 'Instant qualification', body: 'Custom AI agents qualify, triage, and book high-intent leads 24/7, in real time.', t0: T.card1 },
+  { n: '2', title: 'Fixed-fee certainty', body: 'Single-page flat fee pricing. Zero scope creep, no surprise hourly invoices.', t0: T.card2 },
+  { n: '3', title: 'Outcome-based value', body: 'Designed to capture a fraction of the net revenue created for your company.', t0: T.card3 },
+];
+const CW = 520, CH = 440, CY = 330, CGAP = 60, CX0 = 120;
+function icon(k, cx, cy) {
+  if (k === 0) { circle(cx, cy, 38, C.LIME); ctx.beginPath(); [[5,-22],[-15,4],[-2,4],[-6,22],[15,-5],[2,-5]].forEach(([a, b], i) => i ? ctx.lineTo(cx+a, cy+b) : ctx.moveTo(cx+a, cy+b)); ctx.closePath(); ctx.fillStyle = C.INK; ctx.fill(); }
+  if (k === 1) { circle(cx, cy, 38, C.VIO); ctx.beginPath(); ctx.moveTo(cx-15, cy+1); ctx.lineTo(cx-4, cy+12); ctx.lineTo(cx+16, cy-12); ctx.strokeStyle = C.WHITE; ctx.lineWidth = 8; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.stroke(); }
+  if (k === 2) { circle(cx, cy, 38, C.TINT); [[-18, 14, C.IND], [-3, 26, C.IND], [12, 38, C.LIME]].forEach(([dx, h, col]) => { rr(cx+dx-6, cy+19-h, 12, h, 3); ctx.fillStyle = col; ctx.fill(); }); }
+}
+function scene2(t) {
+  ctx.fillStyle = C.IND; ctx.fillRect(0, 0, W, H);
+  const ph = t*0.9;
+  // decor circle
+  const dc = pp(t, T.wipeEnd - 0.1, 0.9); circle(1830, 40, 270*dc, C.VIO);
+  wave(1020, 20, 720, ph, C.WHITE, 4, 0.3);
+  wave(1030, 20, 640, ph + 1.2, C.LIME, 12);
+  wave(1052, 20, 780, ph + 2.4, C.INKW || '#14162B', 0, 0);
+
+  const ex = E.out(prog(t, T.collapse, 0.4)); // header/pipeline exit
+  // title
+  const tp = E.out(prog(t, T.title, 0.6));
+  reveal(tp * (1-ex), 190, TITLE_S, () => {
+    const f = `700 ${TITLE_S}px ${SYNE}`; const a = 'Devx AI ';
+    txt(a, 120, 190, f, C.WHITE); txt('Lead Engines', 120 + mw(a, f), 190, f, C.LIME);
+  });
+  const sp = E.out(prog(t, T.sub, 0.5));
+  if (sp > 0 && ex < 1) { ctx.save(); ctx.globalAlpha = sp*(1-ex); txt('HOW DEVX AI AUTOMATION TRANSFORMS YOUR BUSINESS', 120, 262 + (1-sp)*20 - ex*40, `600 26px ${DM}`, C.WHITE, 'left', 4); ctx.restore(); }
+
+  // cards
+  const col = prog(t, T.collapse, T.hit - T.collapse), cexp = E.in(col);
+  CARDS.forEach((c, i) => {
+    const s0 = pp(t, c.t0, 0.6); if (s0 <= 0.001 || t >= T.hit) return;
+    const bx = CX0 + i*(CW + CGAP), cx = bx + CW/2, cy = CY + CH/2;
+    const b = 1 + 0.012*pulse(t);
+    const sc = s0 * b * (1 - cexp) * (1 + 0.06*Math.sin(Math.min(1, col*4)*Math.PI));
+    const px = lerp(cx, 960, cexp), py = lerp(cy + (1-s0)*40, 300, cexp);
+    ctx.save(); ctx.translate(px, py); ctx.scale(sc, sc); ctx.translate(-CW/2, -CH/2);
+    rr(0, 12, CW, CH, 30); ctx.fillStyle = C.INDD; ctx.fill();   // hard offset shadow
+    rr(0, 0, CW, CH, 30); ctx.fillStyle = C.WHITE; ctx.fill();
+    circle(52, 56, 28, C.IND); txt(c.n, 52, 68, `700 32px ${DM}`, C.WHITE, 'center');
+    icon(i, CW - 62, 56);
+    const tsz = fit(c.title, 700, SYNE, CW - 80, 40); txt(c.title, 40, 170, `700 ${tsz}px ${SYNE}`, C.INK);
+    rr(40, 192, 64, 8, 4); ctx.fillStyle = C.LIME; ctx.fill();
+    wrap(c.body, `500 29px ${DM}`, CW - 80).forEach((ln, k) => txt(ln, 40, 252 + k*42, `500 29px ${DM}`, C.BODY));
+    ctx.restore();
+  });
+
+  // pipeline
+  const PX = [200, 706, 1213, 1720], PY = 880;
+  const pa = E.out(prog(t, T.pipe, 0.5));
+  if (pa > 0 && ex < 1) {
+    ctx.save(); ctx.globalAlpha = 1 - ex; ctx.translate(0, ex*40);
+    rr(PX[0], PY - 5, (PX[3] - PX[0])*pa, 10, 5); ctx.fillStyle = 'rgba(255,255,255,0.28)'; ctx.fill();
+    const dt = E.inout(prog(t, 8.95, 1.1)); const dx = lerp(PX[0], PX[3], dt);
+    if (dt > 0) { rr(PX[0], PY - 5, dx - PX[0], 10, 5); ctx.fillStyle = C.LIME; ctx.fill(); }
+    ['NEW LEAD', 'QUALIFIED', 'BOOKED', 'REVENUE'].forEach((lab, i) => {
+      const lit = dx >= PX[i] - 1 && dt > 0 || (i === 0 && pa > 0.99);
+      const k = i === 0 ? pp(t, T.pipe + 0.1, 0.4) : pp(t, 8.95 + (i/3 > 0 ? 1.1*bezInv(i/3) : 0), 0.4);
+      circle(PX[i], PY, 24*Math.max(0.01, pa), C.WHITE);
+      if (lit && k > 0) circle(PX[i], PY, 17*k, C.LIME);
+      txt(lab, PX[i], PY + 66, `700 24px ${DM}`, C.WHITE, 'center', 3);
+    });
+    if (dt > 0 && dt < 1) { circle(dx, PY, 15, C.WHITE); circle(dx, PY, 9, C.LIME); }
+    ctx.restore();
+  }
+}
+// approximate inverse of inout so node pops sync with the travelling dot
+function bezInv(u) { let lo = 0, hi = 1; for (let i = 0; i < 24; i++) { const m = (lo+hi)/2; if (E.inout(m) < u) lo = m; else hi = m; } return (lo+hi)/2; }
+
+// ============================================================ SCENE 3 — logo lockup + CTA
+function scene3(t) {
+  const ph = t*0.9;
+  const hitT = t - T.hit; if (hitT < 0) return;
+  wave(1020, 20, 720, ph, C.WHITE, 4, 0.3);
+  wave(1030, 20, 640, ph + 1.2, C.LIME, 12);
+  // shockwave
+  const sw = prog(t, T.hit, 0.7);
+  if (sw > 0 && sw < 1) { ctx.save(); ctx.globalAlpha = 1 - sw; ctx.beginPath(); ctx.arc(960, 300, E.out(sw)*900, 0, Math.PI*2); ctx.strokeStyle = C.LIME; ctx.lineWidth = 26*(1-sw) + 2; ctx.stroke(); ctx.restore(); }
+  // logo card
+  const ls = pp(t, T.hit, 0.65); const fl = hitT > 0.7 ? Math.sin((t - T.hit)*2.2)*7 : 0;
+  const lh = 270, lw = lh*1100/960, pad = 30, cw = lw + pad*2, ch = lh + pad*2;
+  if (ls > 0.001) {
+    ctx.save(); ctx.translate(960, 300 + fl); ctx.scale(ls, ls);
+    rr(-cw/2, -ch/2 + 12, cw, ch, 34); ctx.fillStyle = C.INDD; ctx.fill();
+    rr(-cw/2, -ch/2, cw, ch, 34); ctx.fillStyle = C.WHITE; ctx.fill();
+    ctx.drawImage(logo, -lw/2, -lh/2, lw, lh); ctx.restore();
+  }
+  // tagline
+  reveal(E.out(prog(t, T.tag1, 0.55)), 610, 76, () => txt('Build Smarter. Automate Everything.', 960, 610, `700 ${fit('Build Smarter. Automate Everything.', 700, SYNE, 1500, 76)}px ${SYNE}`, C.WHITE, 'center'));
+  const t2 = E.out(prog(t, T.tag2, 0.5));
+  if (t2 > 0) { ctx.save(); ctx.globalAlpha = t2; txt('Ready to treat your tech stack as an asset, not an expense?', 960, 678 + (1-t2)*20, `500 36px ${DM}`, 'rgba(255,255,255,0.9)', 'center'); ctx.restore(); }
+  // CTA pill
+  const cs = pp(t, T.cta, 0.55);
+  if (cs > 0.001) {
+    const label = 'Reply to schedule a diagnostic session', f = `700 38px ${DM}`; const w = mw(label, f) + 120, h = 92;
+    const pb = 1 + 0.025*pulse(t);
+    ctx.save(); ctx.translate(960, 800); ctx.scale(cs*pb, cs*pb);
+    rr(-w/2, -h/2 + 8, w, h, h/2); ctx.fillStyle = C.INDD; ctx.fill();
+    rr(-w/2, -h/2, w, h, h/2); ctx.fillStyle = C.LIME; ctx.fill();
+    txt(label, 0, 13, f, C.INK, 'center'); ctx.restore();
+  }
+  // url
+  const us = E.out(prog(t, T.url, 0.5));
+  if (us > 0) { ctx.save(); ctx.globalAlpha = us; txt('devxdoes.com', 960, 940 + (1-us)*20, `700 42px ${SYNE}`, C.WHITE, 'center', 1); ctx.restore(); }
+}
+
+// ============================================================ transition + frame
+function drawWipe(t) {
+  const a = prog(t, T.wipe, T.wipeEnd - T.wipe);
+  if (a <= 0) return false;
+  const maxR = 2400;
+  const rLime = E.inout(a) * maxR;
+  const rInd = E.inout(clamp(a*1.15 - 0.15)) * maxR;
+  circle(CLK.x, CLK.y, rLime, C.LIME);
+  circle(CLK.x, CLK.y, rInd, C.IND);
+  return rInd >= maxR*0.99;
+}
+window.renderAt = async (t) => {
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, W, H);
+  if (t < T.wipeEnd - 0.02) { scene1(t); drawWipe(t); }
+  else { scene2(t); scene3(t); }
+};
+window.__ready = true;
+</script>
+</body></html>
