@@ -57,3 +57,10 @@
 | 07-liquid | `demos/07-liquid/assets/Fraunces-Liquid-72-900-Soft.ttf` |
 | 08-morph | `demos/08-morph/assets/fonts/Outfit-SemiBold.ttf` |
 | 10-synthwave | `demos/10-synthwave/assets/fonts/MrDafoe-Regular.ttf` |
+| Archivo Black | `assets/fonts/latin/archivoblack/ArchivoBlack-Regular.ttf` |
+| Barlow Condensed | `assets/fonts/latin/barlowcondensed/BarlowCondensed-Medium.ttf` |
+| Barlow Condensed | `assets/fonts/latin/barlowcondensed/BarlowCondensed-SemiBold.ttf` |
+| Bungee | `assets/fonts/latin/bungee/Bungee-Regular.ttf` |
+| DM Mono | `assets/fonts/latin/dmmono/DMMono-Regular.ttf` |
+| DM Mono | `assets/fonts/latin/dmmono/DMMono-Medium.ttf` |
+| Space Grotesk | `assets/fonts/latin/spacegrotesk/SpaceGrotesk-VF.ttf` |

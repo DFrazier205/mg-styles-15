@@ -28,18 +28,25 @@ What is in each brand folder, with notes for using the files in films. Paths are
 ## DevX (`assets/brands/devx/logos/`)
 | File | Size | Notes |
 |---|---|---|
+| `logo-stamp.png` | 1219x1317 | Circuit-pattern X above the DevX wordmark (Oct 2026 system). Transparent. The primary mark; show it in a white card or on ink. |
+| `logo-wordmark.png` | 879x325 | DevX wordmark with a soft drop shadow built in. Transparent. Light grounds. |
 | `Devx logo S dark.jpg` | 1100x960 | Circuit-board X with "DevX". **Opaque near-black ground.** |
 | `Devx logo S light.png` | 1100x960 | Same mark, transparent. Fits the pale `#F5F7FA` ground. |
 
 ## GoGo Maps (`assets/brands/gogomaps/`)
 | File | Size | Notes |
 |---|---|---|
-| `logos/GoGo Maps logo.png` | 1080x1080 | Conga drum head rendered as a DC street map. Transparent. Best used large. |
-| `images/GoGo Maps logo S.png` | 762x179 | Small horizontal logo on navy. |
+| `logos/GoGo Maps logo.png` | 1080x1080 | Full drum-head badge: a conga drum head rendered as a DC street map. Transparent. Best used large. |
+| `logos/logo-lockup.png` | 762x179 | Horizontal lockup: drum icon plus white serif "GoGo Maps". Opaque (night-city backdrop baked in): dark navy grounds only. |
+| `logos/logo-icon.png` | 136x136 | Drum icon alone, circular, transparent. Small placements only (favicon, avatar); keep at 136px or less. |
+| `images/GoGo Maps logo S.png` | 762x179 | Same image as the lockup, kept for older films. |
 
 ## Go-Go Royalty (`assets/brands/gogoroyalty/`)
 | File | Size | Notes |
 |---|---|---|
+| `logos/logo-color.png` | 1260x1465 | Full-color badge from the Oct 2026 system. Transparent. Place on void only. |
+| `logos/logo-white.png` | 813x945 | White knockout of the badge. Transparent. Dark grounds and one-color uses. |
+| `logos/logo-black.png` | 813x945 | One-color black badge. Transparent. Light grounds and print; vanishes on void. |
 | `logos/Go Go Royalty logo.png` | 992x1062 | Black-and-white round seal (Washington Monument, Capitol, "GO-GO ROYALTY DC"). Transparent. |
 | `logos/GoGo Royalty logo.png` | 640x670 | Same seal in purple and black, on white. |
 | `images/Backyard Band.png` | 1376x768 | Backyard Band logo, white on dark brown-black. Opaque. |
@@ -55,8 +62,13 @@ What is in each brand folder, with notes for using the files in films. Paths are
 | `images/Run Joe old school.png` | 1024x1026 | "Run Joe" cartoon artwork (a Mickey Mouse parody), transparent. |
 | `images/go go banner.png` | 1408x768 | "Celebrating 50 years of Go-Go" collage. |
 
+## Go-Go Royalty VR (`assets/brands/ggrvr/logos/`)
+| File | Size | Notes |
+|---|---|---|
+| `logo-primary.png` | 1189x1247 | VR badge: crowned figure in a headset between the Washington Monument and Capitol, ring reading GO-GO ROYALTY, chrome VR with a violet orbit. Transparent. Use large on void. |
+
 ## Not yet added
-`ggrvr/` (Go-Go Royalty VR) and `shared/` are empty.
+`shared/` is empty. BRMG's Oct 2026 logo set (horizontal and stacked wordmarks, embossed badge, crest) is in its design system; the three files above in `brmg/logos/` are still the older copies.
 
 ## Cautions
 - **Public fork.** Band logos, album art, concert photos and the "Run Joe" artwork may belong to other people. Keep them only if you have permission, or make the fork private.
