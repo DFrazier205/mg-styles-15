@@ -1,0 +1,56 @@
+{
+ "fps": 30,
+ "duration": 15.0,
+ "bpm": 120,
+ "comment": "120 bpm: beat 0.5 s = 15 frames, bar 2 s. Four candid 'clips' cut hard on the bar (3.5 / 7.0 / 10.5, flash + shutter), the last one is wiped by the end card over 10 frames ending on 12.5. Captions pop char-by-char (2-frame stagger). Hero = SHOW TIME!! at 9.0 (60%): burst + speed lines + flash + shake + crowd roar. Punches are zoom punches on the footage layer only. Email letters from 13.0.",
+ "trans": 0.3333333333333333,
+ "stagger": 0.06666666666666667,
+ "cuts": [3.5, 7.0, 10.5],
+ "hero_t": 9.0,
+ "scenes": [
+  {
+   "id": "s1", "S": 0.0, "E": 3.5,
+   "lines": [ { "text": "BACKSTAGE", "t": -0.1 }, { "text": "ACCESS", "t": 0.5 } ],
+   "arrow_t": 1.0, "note": { "text": "THIS WAY", "t": 1.5 },
+   "sticker": { "type": "pass", "t": 2.0 },
+   "sparkle_t": [2.0, 2.5, 3.0],
+   "punches": [ { "t": 0.0, "a": 0.08 }, { "t": 1.0, "a": 0.14 }, { "t": 2.5, "a": 0.12 } ]
+  },
+  {
+   "id": "s2", "S": 3.5, "E": 7.0,
+   "lines": [ { "text": "GET READY", "t": 3.5 }, { "text": "WITH US", "t": 4.0 } ],
+   "arrow_t": 4.5, "note": { "text": "PRE-SHOW GLOW", "t": 5.0 },
+   "sticker": { "type": "phones", "t": 5.5 },
+   "sparkle_t": [5.5, 6.0, 6.5],
+   "punches": [ { "t": 3.5, "a": 0.16 }, { "t": 5.0, "a": 0.12 }, { "t": 6.5, "a": 0.10 } ]
+  },
+  {
+   "id": "s3", "S": 7.0, "E": 10.5,
+   "lines": [ { "text": "SHOW", "t": 7.5 }, { "text": "TIME!!", "t": 9.0 } ],
+   "arrow_t": 8.0, "note": { "text": "HERE THEY COME", "t": 8.5 },
+   "sticker": { "type": "live", "t": 9.5 },
+   "sparkle_t": [9.5, 10.0, 10.25],
+   "punches": [ { "t": 7.0, "a": 0.16 }, { "t": 8.0, "a": 0.10 }, { "t": 9.0, "a": 0.26 }, { "t": 10.0, "a": 0.12 } ]
+  },
+  {
+   "id": "s4", "S": 10.5, "E": 12.5,
+   "lines": [ { "text": "POST IT", "t": 10.5 }, { "text": "TONIGHT", "t": 11.0 } ],
+   "arrow_t": 11.5, "note": { "text": "FANS GET IT FIRST", "t": 12.0 },
+   "sticker": { "type": "check", "t": 11.5 },
+   "hearts_t": [11.0, 11.5, 11.75, 12.0, 12.25],
+   "progress": [10.75, 11.5],
+   "sparkle_t": [11.5, 11.75, 12.0],
+   "punches": [ { "t": 10.5, "a": 0.16 }, { "t": 11.5, "a": 0.10 } ]
+  }
+ ],
+ "final": {
+  "S": 12.5,
+  "badge_t": 12.5,
+  "title": "LET'S ROLL", "title_t": 12.75,
+  "email": "contact@brmgdc.com", "email_t": 13.0,
+  "micro": "DIGITAL CONTENT FOR LIVE EVENTS", "micro_t": 13.5,
+  "group": "BEAT REPUBLIC MEDIA GROUP", "group_t": 13.75,
+  "sparkle_t": [13.0, 13.25, 13.5]
+ },
+ "end": 15.0
+}

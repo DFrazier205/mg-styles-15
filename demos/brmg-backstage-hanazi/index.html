@@ -1,0 +1,565 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>BRMG · Backstage Pass — Hanazi kinetic captions (9:16)</title>
+<link rel="stylesheet" href="/assets/fonts/fonts.css">
+<style>
+  html, body { margin: 0; padding: 0; background: #3D3935; overflow: hidden; }
+  canvas { display: block; width: 1080px; height: 1920px; }
+</style>
+</head>
+<body>
+<canvas id="c" width="1080" height="1920"></canvas>
+<script type="module">
+// BRMG "Backstage Pass" — 综艺花字 / Hanazi kinetic captions over stylised candid backstage clips (9:16).
+// No camera footage is supplied, so each "clip" is a drawn stand-in with handheld shake, grain, vignette, REC HUD and
+// zoom punches. Captions = three-layer sticker type with 8-frame overshoot pops and 2-frame per-character stagger.
+// Palette (and nothing else, tints by alpha only): Cover Red #ED2F2F, Parchment #DFD7C7, Charcoal #3D3935.
+// Every frame is a pure function of t.
+const W = 1080, H = 1920, FPS = 30;
+const COL = { RED: '#ED2F2F', PARCH: '#DFD7C7', CH: '#3D3935' };
+const rgba = (a) => `rgba(223,215,199,${a})`;            // Parchment tint
+const rgbaC = (a) => `rgba(61,57,53,${a})`;               // Charcoal tint
+const rgbaR = (a) => `rgba(237,47,47,${a})`;              // Cover Red tint
+const C = await (await fetch('/demos/brmg-backstage-hanazi/cues.json')).json();
+const STAG = C.stagger, TRANS = C.trans;
+const SC = Object.fromEntries(C.scenes.map(s => [s.id, s]));
+
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const prog = (t, t0, t1) => clamp((t - t0) / (t1 - t0));
+const io2 = u => (u < 0.5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2);
+const outC = u => 1 - Math.pow(1 - u, 3);
+const rnd = (k) => { const x = Math.sin(k * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+
+function pop(a) {                      // scale 0 -> 1.15 -> 1.0 in 8 frames
+  if (a <= 0) return 0;
+  if (a < 5) return 1.15 * outC(a / 5);
+  if (a < 8) { const u = (a - 5) / 3; return 1.15 - 0.15 * u * u * (3 - 2 * u); }
+  return 1;
+}
+
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d', { alpha: false });
+ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.miterLimit = 2;
+const badge = new Image();
+badge.src = '/assets/brands/brmg/logos/BRMG-Logo-minumal-emboss-white.png';
+
+// ------------------------------------------------------------------ sticker type
+const FONT = (s) => `${s}px "Bagel Fat One"`;
+function glyph(str, st, size) {
+  ctx.font = FONT(size); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const total = (st.R1 ? st.R1[1] : 0) + (st.R2 ? 2 * st.R2[1] : 0);
+  if (st.S) { ctx.strokeStyle = st.S[0]; ctx.lineWidth = total; ctx.strokeText(str, 0, st.S[1]); ctx.fillStyle = st.S[0]; ctx.fillText(str, 0, st.S[1]); }
+  if (st.R2) { ctx.strokeStyle = st.R2[0]; ctx.lineWidth = total; ctx.strokeText(str, 0, 0); }
+  if (st.R1) { ctx.strokeStyle = st.R1[0]; ctx.lineWidth = st.R1[1]; ctx.strokeText(str, 0, 0); }
+  ctx.fillStyle = st.F; ctx.fillText(str, 0, 0);
+}
+const scaleSt = (st, f) => ({ F: st.F, R1: st.R1 && [st.R1[0], st.R1[1] * f], R2: st.R2 && [st.R2[0], st.R2[1] * f], S: st.S && [st.S[0], st.S[1] * f] });
+function charLine(str, cx, cy, size, st0, t, t0, o = {}) {
+  const st = scaleSt(st0, clamp(size / 150, 0.45, 1));
+  ctx.font = FONT(size);
+  const adv = [...str].map(ch => ctx.measureText(ch).width + (o.track || 0));
+  const total = adv.reduce((a, b) => a + b, 0);
+  let x = cx - total / 2;
+  [...str].forEach((ch, k) => {
+    const age = (t - t0 - k * STAG) * FPS;
+    const px = x + adv[k] / 2; x += adv[k];
+    if (ch === ' ' || age <= 0) return;
+    const s = pop(age), settle = clamp((age - 8) / 14);
+    const rot = (rnd(k + (o.seed || 0)) - 0.5) * 0.16 * (1 - 0.6 * settle) + 0.03 * Math.sin(t * 7 + k * 0.9) * settle;
+    const dy = 5 * Math.sin(t * 6 + k * 0.8) * settle;
+    ctx.save(); ctx.translate(px, cy + dy); ctx.rotate(rot); ctx.scale(s, s);
+    glyph(ch, st, size); ctx.restore();
+  });
+}
+function fitSize(str, max, wmax) { ctx.font = FONT(100); return Math.min(max, 100 * wmax / ctx.measureText(str).width); }
+const sty = (F, r1, r2, s) => ({ F, R1: r1, R2: r2, S: s });
+const LA = sty(COL.PARCH, [COL.CH, 22], [COL.RED, 9], [COL.CH, 14]);      // parchment fill, red flower edge
+const LB = sty(COL.RED, [COL.PARCH, 22], [COL.CH, 9], [COL.CH, 14]);      // red fill, parchment ring
+
+// ------------------------------------------------------------------ decorations
+function burst(cx, cy, R, fill, edge, t, t0, seed = 0) {
+  const a = (t - t0) * FPS; if (a <= 0) return;
+  const s = pop(a) * (1 + 0.012 * Math.sin(t * 9));
+  const n = 16; ctx.save(); ctx.translate(cx, cy); ctx.rotate(0.12 * t + seed); ctx.scale(s, s);
+  ctx.beginPath();
+  for (let i = 0; i < n * 2; i++) {
+    const r = (i % 2 === 0 ? R : R * 0.76) * (0.94 + 0.1 * rnd(i + seed * 7));
+    const ang = (i / (n * 2)) * Math.PI * 2;
+    i ? ctx.lineTo(Math.cos(ang) * r, Math.sin(ang) * r) : ctx.moveTo(Math.cos(ang) * r, Math.sin(ang) * r);
+  }
+  ctx.closePath(); ctx.fillStyle = fill; ctx.fill(); ctx.strokeStyle = edge; ctx.lineWidth = 12; ctx.stroke(); ctx.restore();
+}
+function speedLines(cx, cy, col, t, t0) {
+  const a = (t - t0) * FPS; if (a < 0 || a >= 7) return;
+  const n = 30, hw = 0.055 * (1 - a / 7), len = 1500 * (0.55 + 0.45 * outC(a / 3));
+  ctx.fillStyle = col;
+  for (let i = 0; i < n; i++) {
+    const ang = (i / n) * Math.PI * 2 + 0.07 * a;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(ang - hw) * len, cy + Math.sin(ang - hw) * len);
+    ctx.lineTo(cx + Math.cos(ang + hw) * len, cy + Math.sin(ang + hw) * len); ctx.closePath(); ctx.fill();
+  }
+}
+function sparkle(cx, cy, r, fill, edge, t, t0) {
+  const a = (t - t0) * FPS; if (a <= 0) return;
+  const s = pop(a) * (0.86 + 0.18 * Math.sin(t * 8 + cx));
+  ctx.save(); ctx.translate(cx, cy); ctx.rotate(0.15 * Math.sin(t * 4 + cy)); ctx.scale(s, s);
+  ctx.beginPath();
+  for (let i = 0; i < 8; i++) { const ang = i * Math.PI / 4 - Math.PI / 2, rr = i % 2 === 0 ? r : r * 0.28; const x = Math.cos(ang) * rr, y = Math.sin(ang) * rr; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+  ctx.closePath(); ctx.strokeStyle = edge; ctx.lineWidth = 14; ctx.stroke(); ctx.fillStyle = fill; ctx.fill(); ctx.restore();
+}
+function sticker(fn, cx, cy, size, t, t0, tilt = 0) {
+  const a = (t - t0) * FPS; if (a <= 0) return;
+  const s = pop(a), settle = clamp((a - 8) / 14);
+  ctx.save(); ctx.translate(cx, cy + 6 * Math.sin(t * 5)); ctx.rotate(tilt + 0.07 * Math.sin(t * 6) * settle); ctx.scale(s, s);
+  fn(size); ctx.restore();
+}
+const rr = (x, y, w, h, r) => { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); };
+const EDGE = COL.PARCH;      // white-border sticker cut-out look on dark footage
+
+function iconPass(s) {
+  const w = s * 0.8, h = s * 1.1, x = -w / 2, y = -h / 2;
+  // lanyard strap going off the top
+  ctx.strokeStyle = EDGE; ctx.lineWidth = 56; ctx.beginPath(); ctx.moveTo(0, y + 20); ctx.lineTo(0, y - 150); ctx.stroke();
+  ctx.strokeStyle = COL.RED; ctx.lineWidth = 30; ctx.beginPath(); ctx.moveTo(0, y + 20); ctx.lineTo(0, y - 150); ctx.stroke();
+  rr(x, y, w, h, 26); ctx.strokeStyle = EDGE; ctx.lineWidth = 34; ctx.stroke(); ctx.fillStyle = COL.PARCH; ctx.fill();
+  rr(x, y, w, h, 26); ctx.strokeStyle = COL.CH; ctx.lineWidth = 12; ctx.stroke();
+  ctx.fillStyle = COL.CH; rr(-w * 0.14, y + 18, w * 0.28, 14, 7); ctx.fill();            // slot
+  ctx.save(); rr(x, y, w, h, 26); ctx.clip(); ctx.fillStyle = COL.RED; ctx.fillRect(x, y + h * 0.58, w, h * 0.22); ctx.restore();
+  ctx.fillStyle = COL.CH; ctx.beginPath();
+  for (let i = 0; i < 10; i++) { const ang = i * Math.PI / 5 - Math.PI / 2, r = i % 2 ? 24 : 58; const px = Math.cos(ang) * r, py = y + h * 0.37 + Math.sin(ang) * r; i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }
+  ctx.closePath(); ctx.fill();
+  ctx.font = '800 20px "Montserrat"'; ctx.letterSpacing = '2px'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = COL.PARCH; ctx.fillText('ALL ACCESS', 1, y + h * 0.69); ctx.fillStyle = COL.CH; ctx.fillText('BRMG', 2, y + h * 0.9); ctx.letterSpacing = '0px';
+}
+function iconPhones(s) {
+  const r = s * 0.42;
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = EDGE; ctx.lineWidth = 92; ctx.beginPath(); ctx.arc(0, 0, r, Math.PI * 1.08, Math.PI * 1.92); ctx.stroke();
+  ctx.strokeStyle = COL.CH; ctx.lineWidth = 40; ctx.beginPath(); ctx.arc(0, 0, r, Math.PI * 1.08, Math.PI * 1.92); ctx.stroke();
+  for (const sx of [-1, 1]) {
+    ctx.save(); ctx.translate(sx * r * 0.97, r * 0.2);
+    rr(-44, -70, 88, 140, 36); ctx.strokeStyle = EDGE; ctx.lineWidth = 34; ctx.stroke(); ctx.fillStyle = COL.RED; ctx.fill();
+    rr(-44, -70, 88, 140, 36); ctx.strokeStyle = COL.CH; ctx.lineWidth = 12; ctx.stroke();
+    ctx.strokeStyle = COL.PARCH; ctx.lineWidth = 8; ctx.beginPath(); ctx.moveTo(-18, -34); ctx.lineTo(-18, 34); ctx.stroke();
+    ctx.restore();
+  }
+}
+function iconLive(s) {
+  const w = s * 1.1, h = s * 0.52, x = -w / 2, y = -h / 2;
+  rr(x, y, w, h, h / 2); ctx.strokeStyle = EDGE; ctx.lineWidth = 34; ctx.stroke(); ctx.fillStyle = COL.RED; ctx.fill();
+  rr(x, y, w, h, h / 2); ctx.strokeStyle = COL.CH; ctx.lineWidth = 12; ctx.stroke();
+  ctx.fillStyle = COL.PARCH; ctx.beginPath(); ctx.arc(x + h * 0.52, 0, h * 0.17, 0, 7); ctx.fill();
+  ctx.font = FONT(h * 0.62); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.lineWidth = 12; ctx.strokeStyle = COL.CH; ctx.strokeText('LIVE', h * 0.3, 3); ctx.fillStyle = COL.PARCH; ctx.fillText('LIVE', h * 0.3, 3);
+}
+function iconCheck(s) {
+  const r = s * 0.48;
+  ctx.beginPath(); ctx.arc(0, 0, r, 0, 7); ctx.strokeStyle = EDGE; ctx.lineWidth = 34; ctx.stroke(); ctx.fillStyle = COL.RED; ctx.fill();
+  ctx.beginPath(); ctx.arc(0, 0, r, 0, 7); ctx.strokeStyle = COL.CH; ctx.lineWidth = 12; ctx.stroke();
+  ctx.strokeStyle = COL.PARCH; ctx.lineWidth = 36; ctx.beginPath(); ctx.moveTo(-r * 0.46, 2); ctx.lineTo(-r * 0.1, r * 0.36); ctx.lineTo(r * 0.5, -r * 0.34); ctx.stroke();
+}
+function heartPath(s) {
+  ctx.beginPath(); ctx.moveTo(0, s * 0.42);
+  ctx.bezierCurveTo(-s * 0.62, s * 0.02, -s * 0.5, -s * 0.5, 0, -s * 0.22);
+  ctx.bezierCurveTo(s * 0.5, -s * 0.5, s * 0.62, s * 0.02, 0, s * 0.42); ctx.closePath();
+}
+function drawHeart(cx, cy, s, t, t0, k) {
+  const a = (t - t0) * FPS; if (a <= 0) return;
+  const life = t - t0; if (life > 1.5) return;
+  const sc = pop(a), rise = outC(clamp(life / 1.5)) * 520, sway = Math.sin(life * 5 + k) * 26;
+  ctx.save(); ctx.globalAlpha = clamp((1.5 - life) / 0.4); ctx.translate(cx + sway, cy - rise); ctx.rotate(Math.sin(life * 4 + k) * 0.18); ctx.scale(sc, sc);
+  heartPath(s); ctx.strokeStyle = COL.PARCH; ctx.lineWidth = 30; ctx.stroke(); ctx.fillStyle = COL.RED; ctx.fill();
+  heartPath(s); ctx.strokeStyle = COL.CH; ctx.lineWidth = 10; ctx.stroke();
+  ctx.restore();
+}
+
+// handwritten arrow (draw-on) + note
+function arrow(p0, p1, p2, t, t0, dur = 0.4) {
+  const u = prog(t, t0, t0 + dur); if (u <= 0) return;
+  const pt = (v) => [(1 - v) * (1 - v) * p0[0] + 2 * (1 - v) * v * p1[0] + v * v * p2[0], (1 - v) * (1 - v) * p0[1] + 2 * (1 - v) * v * p1[1] + v * v * p2[1]];
+  const path = () => { ctx.beginPath(); const n = 28; for (let i = 0; i <= n; i++) { const v = (i / n) * u; const [x, y] = pt(v); const w = 3 * Math.sin(i * 1.7 + 1); i ? ctx.lineTo(x + w, y + w * 0.6) : ctx.moveTo(x, y); } };
+  const head = () => {
+    const [ex, ey] = pt(u), [bx, by] = pt(Math.max(0, u - 0.04)); const ang = Math.atan2(ey - by, ex - bx);
+    ctx.beginPath(); ctx.moveTo(ex + Math.cos(ang + 2.55) * 60, ey + Math.sin(ang + 2.55) * 60); ctx.lineTo(ex, ey); ctx.lineTo(ex + Math.cos(ang - 2.55) * 60, ey + Math.sin(ang - 2.55) * 60);
+  };
+  ctx.strokeStyle = COL.CH; ctx.lineWidth = 30; path(); ctx.stroke(); if (u > 0.9) { head(); ctx.stroke(); }
+  ctx.strokeStyle = COL.PARCH; ctx.lineWidth = 13; path(); ctx.stroke(); if (u > 0.9) { head(); ctx.stroke(); }
+}
+function note(str, x, y, rot, t, t0, size = 58) {
+  const a = (t - t0) * FPS; if (a <= 0) return;
+  ctx.save(); ctx.translate(x, y); ctx.rotate(rot + 0.02 * Math.sin(t * 5)); const s = pop(a); ctx.scale(s, s);
+  glyph(str, sty(COL.PARCH, [COL.CH, 14], null, [COL.RED, 8]), size); ctx.restore();
+}
+
+// ------------------------------------------------------------------ footage stand-ins
+const persp = (X, Y, z, vx = 540, vy = 840, K = 520) => [vx + X * K / z, vy + Y * K / z];
+function quad(pts, fill, stroke, lw) {
+  ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath();
+  if (fill) { ctx.fillStyle = fill; ctx.fill(); } if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lw || 4; ctx.stroke(); }
+}
+function caseBox(x0, x1, y0, y1, z0, z1, side) {      // flight case in corridor space; side = 'L' (inner face is +X) or 'R'
+  const F = [persp(x0, y0, z0), persp(x1, y0, z0), persp(x1, y1, z0), persp(x0, y1, z0)];
+  const inner = side === 'L'
+    ? [persp(x1, y0, z0), persp(x1, y0, z1), persp(x1, y1, z1), persp(x1, y1, z0)]
+    : [persp(x0, y0, z0), persp(x0, y0, z1), persp(x0, y1, z1), persp(x0, y1, z0)];
+  const top = [persp(x0, y0, z0), persp(x1, y0, z0), persp(x1, y0, z1), persp(x0, y0, z1)];
+  if (y0 > 0) quad(top, rgba(0.30), rgba(0.9), 4);
+  quad(inner, rgba(0.10), rgba(0.9), 4);
+  quad(F, rgba(0.20), rgba(0.95), 5);
+  const [ax, ay] = F[0], [bx, by] = F[2], w = bx - ax, h = by - ay;
+  ctx.strokeStyle = rgba(0.7); ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(ax, ay + h * 0.28); ctx.lineTo(bx, ay + h * 0.28); ctx.moveTo(ax, ay + h * 0.72); ctx.lineTo(bx, ay + h * 0.72); ctx.stroke();
+  ctx.fillStyle = rgba(0.95);
+  for (const [fx, fy] of [[0.1, 0.1], [0.9, 0.1], [0.1, 0.9], [0.9, 0.9]]) ctx.fillRect(ax + w * fx - 9, ay + h * fy - 9, 18, 18);
+  ctx.fillStyle = COL.RED; ctx.fillRect(ax + w * 0.5 - w * 0.06, ay + h * 0.46, w * 0.12, h * 0.1);   // a red gaff-tape label
+}
+function person(fx, fy, h, t, o = {}) {              // backlit silhouette: charcoal body + parchment rim; (fx, fy) = feet
+  const hr = h * 0.075, hy = fy - h + hr, sh = h * 0.2, sw = h * 0.15;
+  const step = Math.sin(t * Math.PI * 4 * (o.walk ?? 1)) * (o.walk === 0 ? 0 : 1);
+  ctx.lineCap = 'round';
+  const body = () => {
+    ctx.beginPath(); ctx.arc(fx, hy, hr, 0, 7);
+    ctx.moveTo(fx - sw, fy - h * 0.43); ctx.lineTo(fx - sw * 0.9, fy - h * 0.82); ctx.quadraticCurveTo(fx, fy - h * 0.9, fx + sw * 0.9, fy - h * 0.82);
+    ctx.lineTo(fx + sw, fy - h * 0.43); ctx.closePath();
+  };
+  const limbs = () => {
+    ctx.beginPath();
+    ctx.moveTo(fx - sw * 0.5, fy - h * 0.43); ctx.lineTo(fx - sw * 0.5 + step * h * 0.07, fy);
+    ctx.moveTo(fx + sw * 0.5, fy - h * 0.43); ctx.lineTo(fx + sw * 0.5 - step * h * 0.07, fy);
+    ctx.moveTo(fx - sw * 0.95, fy - h * 0.8); ctx.lineTo(fx - sw * 1.2 - step * h * 0.05, fy - h * 0.5);
+    ctx.moveTo(fx + sw * 0.95, fy - h * 0.8); ctx.lineTo(fx + sw * 1.2 + step * h * 0.05, fy - h * 0.5);
+  };
+  ctx.strokeStyle = rgba(0.9); ctx.lineWidth = h * 0.08 + 8; limbs(); ctx.stroke(); body(); ctx.lineWidth = 8; ctx.stroke();
+  ctx.strokeStyle = COL.CH; ctx.lineWidth = h * 0.08; limbs(); ctx.stroke();
+  ctx.fillStyle = COL.CH; body(); ctx.fill();
+}
+
+function sceneCorridor(t, lt) {
+  ctx.fillStyle = COL.CH; ctx.fillRect(-100, -100, W + 200, H + 200);
+  const g = ctx.createRadialGradient(540, 830, 0, 540, 830, 820);
+  g.addColorStop(0, rgba(0.95)); g.addColorStop(0.18, rgba(0.55)); g.addColorStop(1, rgba(0)); ctx.fillStyle = g; ctx.fillRect(-100, -100, W + 200, H + 200);
+  const zN = 0.5, zF = 2.2;
+  quad([persp(-1, -1.5, zN), persp(-1, 1, zN), persp(-1, 1, zF), persp(-1, -1.5, zF)], rgbaC(0.92));           // left wall
+  quad([persp(1, -1.5, zN), persp(1, 1, zN), persp(1, 1, zF), persp(1, -1.5, zF)], rgbaC(0.92));              // right wall
+  quad([persp(-1, 1, zN), persp(1, 1, zN), persp(1, 1, zF), persp(-1, 1, zF)], rgba(0.16));                    // floor
+  quad([persp(-1, -1.5, zN), persp(1, -1.5, zN), persp(1, -1.5, zF), persp(-1, -1.5, zF)], rgbaC(0.95));       // ceiling
+  // wall panel seams + floor bands
+  ctx.strokeStyle = rgba(0.22); ctx.lineWidth = 3;
+  for (let z = 0.7; z < zF; z += 0.34) { for (const X of [-1, 1]) { const a = persp(X, -1.5, z), b = persp(X, 1, z); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); } }
+  for (let z = 0.7; z < zF; z += 0.17) { const a = persp(-1, 1, z), b = persp(1, 1, z); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); }
+  // red gaff-tape line along the floor
+  quad([persp(-0.05, 1, zN), persp(0.05, 1, zN), persp(0.05, 1, zF), persp(-0.05, 1, zF)], rgbaR(0.95));
+  // ceiling strip lights (one flickers)
+  [0.8, 1.15, 1.5, 1.85].forEach((z, i) => {
+    const fl = i === 1 ? (0.55 + 0.45 * (Math.sin(t * 31) > -0.4 ? 1 : 0)) : 1;
+    quad([persp(-0.45, -1.5, z), persp(0.45, -1.5, z), persp(0.45, -1.5, z + 0.12), persp(-0.45, -1.5, z + 0.12)], rgba(0.95 * fl));
+  });
+  // cases
+  caseBox(-1, -0.58, 0.18, 1, 0.75, 1.4, 'L');
+  caseBox(-1, -0.7, 0.35, 1, 1.55, 2.0, 'L');
+  caseBox(0.55, 1, -0.35, 1, 1.0, 1.7, 'R');
+  caseBox(0.62, 1, 0.45, 1, 0.62, 0.95, 'R');
+  // door at the far end
+  const d0 = persp(-0.45, -0.9, zF), d1 = persp(0.45, 1, zF);
+  ctx.fillStyle = COL.PARCH; ctx.fillRect(d0[0], d0[1], d1[0] - d0[0], d1[1] - d0[1]);
+  ctx.fillStyle = COL.RED; ctx.fillRect(d0[0] - 22, d0[1] - 58, d1[0] - d0[0] + 44, 46);
+  ctx.font = '800 28px "Montserrat"'; ctx.letterSpacing = '8px'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = COL.PARCH; ctx.fillText('STAGE', 540 + 4, d0[1] - 35); ctx.letterSpacing = '0px';
+  // someone walking to the door
+  const u = prog(lt, 0.0, 3.5), z = 1.7 + u * 0.38, X = 0.2 - 0.18 * u, fy = persp(X, 1, z)[1], fx = persp(X, 1, z)[0];
+  const hp = 1.6 * 520 / z, bob = Math.abs(Math.sin(t * Math.PI * 4)) * 6 / z;
+  person(fx, fy - bob, hp, t, { walk: 1 });
+}
+
+function sceneDressing(t, lt) {
+  ctx.fillStyle = COL.CH; ctx.fillRect(-100, -100, W + 200, H + 200);
+  ctx.fillStyle = rgba(0.07); for (let i = 0; i < 6; i++) ctx.fillRect(i * 190 - 40, 0, 96, 1300);      // wall panels
+  // counter
+  ctx.fillStyle = rgba(0.16); ctx.fillRect(-60, 1290, W + 120, 700); ctx.fillStyle = rgba(0.7); ctx.fillRect(-60, 1284, W + 120, 10);
+  // bottles + products
+  [[110, 1180, 70, 105], [210, 1210, 54, 75], [840, 1170, 84, 115], [950, 1200, 58, 85]].forEach(([x, y, w, h], i) => {
+    rr(x, y + 100 - h + 0, w, h, 14); ctx.fillStyle = rgba(0.5); ctx.fill(); ctx.strokeStyle = rgba(0.95); ctx.lineWidth = 4; ctx.stroke();
+    if (i % 2 === 0) { ctx.fillStyle = COL.RED; ctx.fillRect(x + 6, y + 100 - h * 0.6, w - 12, h * 0.22); }
+  });
+  // mirror
+  const mx = 170, my = 330, mw = 740, mh = 900;
+  rr(mx - 30, my - 30, mw + 60, mh + 60, 56); ctx.fillStyle = rgbaC(1); ctx.fill(); ctx.strokeStyle = rgba(0.9); ctx.lineWidth = 6; ctx.stroke();
+  rr(mx, my, mw, mh, 34);
+  const gm = ctx.createLinearGradient(mx, my, mx + mw, my + mh); gm.addColorStop(0, rgba(0.5)); gm.addColorStop(0.5, rgba(0.28)); gm.addColorStop(1, rgba(0.42)); ctx.fillStyle = gm; ctx.fill();
+  // reflection glare streak
+  ctx.save(); rr(mx, my, mw, mh, 34); ctx.clip(); ctx.fillStyle = rgba(0.14); ctx.beginPath(); ctx.moveTo(mx + 90, my); ctx.lineTo(mx + 190, my); ctx.lineTo(mx + 60 + 160, my + mh); ctx.lineTo(mx - 40, my + mh); ctx.closePath(); ctx.fill();
+  // artist in the mirror (bobbing on the beat)
+  const bob = -12 * Math.abs(Math.sin(t * Math.PI * 2 * 1)) , cx = 540 + 8 * Math.sin(t * 1.4);
+  ctx.translate(0, bob);
+  ctx.fillStyle = COL.CH;
+  ctx.beginPath(); ctx.moveTo(cx - 280, my + mh + 60); ctx.quadraticCurveTo(cx - 270, my + mh - 330, cx - 90, my + mh - 380); ctx.lineTo(cx + 90, my + mh - 380); ctx.quadraticCurveTo(cx + 270, my + mh - 330, cx + 280, my + mh + 60); ctx.closePath(); ctx.fill();   // shoulders
+  ctx.fillRect(cx - 42, my + mh - 450, 84, 90);                                                                                                  // neck
+  ctx.beginPath(); ctx.ellipse(cx, my + mh - 560, 112, 138, 0, 0, 7); ctx.fill();                                                                // head
+  ctx.strokeStyle = rgba(0.75); ctx.lineWidth = 6; ctx.beginPath(); ctx.ellipse(cx, my + mh - 560, 112, 138, 0, Math.PI * 1.1, Math.PI * 1.9); ctx.stroke();
+  ctx.strokeStyle = COL.CH; ctx.lineWidth = 30; ctx.beginPath(); ctx.arc(cx, my + mh - 565, 126, Math.PI * 1.02, Math.PI * 1.98); ctx.stroke();   // headphone band
+  for (const sx of [-1, 1]) { rr(cx + sx * 126 - 28, my + mh - 600, 56, 112, 24); ctx.fillStyle = COL.RED; ctx.fill(); ctx.strokeStyle = COL.CH; ctx.lineWidth = 8; ctx.stroke(); }
+  ctx.restore();
+  // bulbs round the frame
+  const bulbs = [];
+  for (let i = 0; i < 6; i++) bulbs.push([mx + 40 + i * ((mw - 80) / 5), my - 14]);
+  for (let i = 0; i < 8; i++) { bulbs.push([mx - 14, my + 70 + i * ((mh - 140) / 7)]); bulbs.push([mx + mw + 14, my + 70 + i * ((mh - 140) / 7)]); }
+  bulbs.forEach(([x, y], i) => {
+    const out = (i === 4 || i === 11), fl = out ? 0.18 : 0.9 + 0.1 * Math.sin(t * 9 + i * 2.1) * (i % 5 === 0 ? 1 : 0.2);
+    const gb = ctx.createRadialGradient(x, y, 0, x, y, 62); gb.addColorStop(0, rgba(0.55 * fl)); gb.addColorStop(1, rgba(0)); ctx.fillStyle = gb; ctx.fillRect(x - 64, y - 64, 128, 128);
+    ctx.beginPath(); ctx.arc(x, y, 21, 0, 7); ctx.fillStyle = rgba(fl); ctx.fill(); ctx.strokeStyle = COL.CH; ctx.lineWidth = 6; ctx.stroke();
+  });
+  // clothes rail with a stage jacket (the red accent)
+  ctx.strokeStyle = rgba(0.9); ctx.lineWidth = 10; ctx.beginPath(); ctx.moveTo(900, 200); ctx.lineTo(1160, 200); ctx.stroke();
+  const sw = 0.05 * Math.sin(t * 2.2);
+  ctx.save(); ctx.translate(1010, 200); ctx.rotate(sw);
+  ctx.strokeStyle = rgba(0.9); ctx.lineWidth = 8; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 30); ctx.lineTo(-70, 70); ctx.lineTo(70, 70); ctx.lineTo(0, 30); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-70, 70); ctx.lineTo(-150, 110); ctx.lineTo(-120, 560); ctx.lineTo(120, 560); ctx.lineTo(150, 110); ctx.lineTo(70, 70); ctx.closePath();
+  ctx.fillStyle = COL.RED; ctx.fill(); ctx.strokeStyle = COL.CH; ctx.lineWidth = 8; ctx.stroke();
+  ctx.strokeStyle = rgba(0.85); ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(0, 70); ctx.lineTo(0, 560); ctx.stroke();
+  ctx.restore();
+  // ring light on the left
+  const rx = 90, ry = 600;
+  const gr = ctx.createRadialGradient(rx, ry, 20, rx, ry, 190); gr.addColorStop(0, rgba(0.35)); gr.addColorStop(1, rgba(0)); ctx.fillStyle = gr; ctx.fillRect(rx - 200, ry - 200, 400, 400);
+  ctx.beginPath(); ctx.arc(rx, ry, 100, 0, 7); ctx.strokeStyle = COL.PARCH; ctx.lineWidth = 22; ctx.stroke(); ctx.strokeStyle = COL.CH; ctx.lineWidth = 6; ctx.stroke();
+  ctx.fillStyle = rgba(0.8); ctx.fillRect(rx - 5, ry + 100, 10, 520);
+}
+
+function sceneWings(t, lt) {
+  ctx.fillStyle = COL.CH; ctx.fillRect(-100, -100, W + 200, H + 200);
+  // lit stage backdrop
+  const g = ctx.createRadialGradient(540, 760, 0, 540, 760, 900); g.addColorStop(0, rgba(0.75)); g.addColorStop(0.4, rgba(0.35)); g.addColorStop(1, rgba(0)); ctx.fillStyle = g; ctx.fillRect(-100, -100, W + 200, H + 200);
+  // truss with lamp heads
+  ctx.strokeStyle = rgba(0.9); ctx.lineWidth = 10; ctx.beginPath(); ctx.moveTo(-40, 190); ctx.lineTo(W + 40, 190); ctx.moveTo(-40, 250); ctx.lineTo(W + 40, 250); ctx.stroke();
+  ctx.lineWidth = 5; ctx.beginPath(); for (let x = -40; x < W + 40; x += 60) { ctx.moveTo(x, 190); ctx.lineTo(x + 30, 250); ctx.lineTo(x + 60, 190); } ctx.stroke();
+  // sweeping beams
+  const beam = (x0, sweep, col, a) => {
+    const x1 = 540 + sweep; ctx.fillStyle = col(a); ctx.beginPath(); ctx.moveTo(x0 - 30, 250); ctx.lineTo(x0 + 30, 250); ctx.lineTo(x1 + 230, 1180); ctx.lineTo(x1 - 230, 1180); ctx.closePath(); ctx.fill();
+  };
+  beam(250, 260 * Math.sin(t * 1.3), rgba, 0.26); beam(830, -240 * Math.sin(t * 1.1 + 1), rgbaR, 0.30); beam(540, 140 * Math.sin(t * 1.7 + 2), rgba, 0.18);
+  for (const x of [250, 540, 830]) { ctx.beginPath(); ctx.arc(x, 262, 26, 0, 7); ctx.fillStyle = COL.PARCH; ctx.fill(); ctx.strokeStyle = COL.CH; ctx.lineWidth = 6; ctx.stroke(); }
+  // stage floor
+  quad([[-100, 1330], [W + 100, 1330], [W + 260, 1560], [-260, 1560]], rgba(0.12));
+  quad([[0, 1040], [W, 1040], [W + 100, 1330], [-100, 1330]], rgba(0.22));
+  ctx.strokeStyle = rgba(0.9); ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(-100, 1330); ctx.lineTo(W + 100, 1330); ctx.stroke();
+  // band silhouettes (arms and heads move on the beat)
+  const bt = (t * 2) % 1, hit = Math.abs(Math.sin(t * Math.PI * 2));
+  const fig = (x, y, h, arms) => {
+    const hr = h * 0.075;
+    ctx.fillStyle = COL.CH; ctx.strokeStyle = rgba(0.85); ctx.lineWidth = 6;
+    ctx.beginPath(); ctx.arc(x, y - h + hr, hr, 0, 7); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x - h * 0.13, y); ctx.lineTo(x - h * 0.12, y - h * 0.8); ctx.quadraticCurveTo(x, y - h * 0.88, x + h * 0.12, y - h * 0.8); ctx.lineTo(x + h * 0.13, y); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.lineCap = 'round'; ctx.lineWidth = h * 0.055 + 8; ctx.strokeStyle = rgba(0.85); arms(); ctx.stroke();
+    ctx.lineWidth = h * 0.055; ctx.strokeStyle = COL.CH; arms(); ctx.stroke();
+  };
+  fig(300, 1250, 380, () => { ctx.beginPath(); ctx.moveTo(262, 1020); ctx.lineTo(220, 960 - 28 * hit); ctx.moveTo(338, 1020); ctx.lineTo(380, 1090); });
+  // vocalist with mic stand, arm up on the beat
+  ctx.strokeStyle = rgba(0.9); ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(470, 1250); ctx.lineTo(470, 930); ctx.stroke();
+  fig(540, 1250, 430, () => { ctx.beginPath(); ctx.moveTo(500, 1000); ctx.lineTo(470, 940); ctx.moveTo(580, 1000); ctx.lineTo(650, 910 - 40 * hit); });
+  // congas
+  for (const [x, s] of [[770, 1], [880, 0.9]]) {
+    ctx.save(); ctx.translate(x, 1250); ctx.scale(s, s);
+    ctx.beginPath(); ctx.moveTo(-50, -230); ctx.quadraticCurveTo(-72, -100, -40, 0); ctx.lineTo(40, 0); ctx.quadraticCurveTo(72, -100, 50, -230); ctx.closePath(); ctx.fillStyle = COL.CH; ctx.fill(); ctx.strokeStyle = rgba(0.9); ctx.lineWidth = 6; ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(0, -230, 52, 16, 0, 0, 7); ctx.fillStyle = COL.RED; ctx.fill(); ctx.strokeStyle = COL.CH; ctx.lineWidth = 5; ctx.stroke();
+    ctx.restore();
+  }
+  fig(830, 1060, 330, () => { const k = Math.sin(t * Math.PI * 4); ctx.beginPath(); ctx.moveTo(800, 830); ctx.lineTo(775, 930 + 22 * k); ctx.moveTo(860, 830); ctx.lineTo(880, 930 - 22 * k); });
+  // curtain legs
+  const leg = (xs, dir) => {
+    ctx.beginPath(); ctx.moveTo(xs, -100); ctx.lineTo(xs + dir * 250, -100); ctx.lineTo(xs + dir * 170, 2020); ctx.lineTo(xs, 2020); ctx.closePath(); ctx.fillStyle = COL.CH; ctx.fill();
+    ctx.strokeStyle = rgba(0.18); ctx.lineWidth = 5; for (let i = 1; i < 6; i++) { ctx.beginPath(); ctx.moveTo(xs + dir * 42 * i, -100); ctx.lineTo(xs + dir * (28 * i), 2020); ctx.stroke(); }
+    ctx.strokeStyle = rgba(0.7); ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(xs + dir * 250, -100); ctx.lineTo(xs + dir * 170, 2020); ctx.stroke();
+  };
+  leg(-20, 1); leg(W + 20, -1);
+  // crowd silhouettes with raised phones
+  for (let row = 0; row < 2; row++) {
+    for (let i = 0; i < 12; i++) {
+      const k = row * 20 + i, x = (i + 0.25 * row + (rnd(k) - 0.5) * 0.35) * 100 + 10 - row * 30, base = 1860 + row * 70 - (row ? 0 : 0);
+      const bobY = -14 * Math.abs(Math.sin(t * Math.PI * 2 + k * 0.7)) * (row ? 1 : 0.8), r = 56 - row * 6;
+      const y = base + bobY - 90;
+      ctx.fillStyle = COL.CH; ctx.strokeStyle = rgba(0.8 - row * 0.15); ctx.lineWidth = 6;
+      ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(x, y + r + 90, r + 40, 100, 0, Math.PI, 0); ctx.fill(); ctx.stroke();
+      if (rnd(k + 5) > 0.45) {      // raised arm + phone
+        const ax = x + (rnd(k + 9) - 0.5) * 70, ay = y - r - 120 - 30 * Math.sin(t * 4 + k);
+        ctx.lineWidth = 30; ctx.strokeStyle = rgba(0.8); ctx.beginPath(); ctx.moveTo(x + 10, y + r); ctx.lineTo(ax, ay); ctx.stroke();
+        ctx.lineWidth = 18; ctx.strokeStyle = COL.CH; ctx.beginPath(); ctx.moveTo(x + 10, y + r); ctx.lineTo(ax, ay); ctx.stroke();
+        const fl = (Math.sin(t * 6 + k * 3.1) > -0.6) ? 1 : 0.35;
+        rr(ax - 20, ay - 56, 40, 66, 8); ctx.fillStyle = rgba(0.95 * fl); ctx.fill(); ctx.strokeStyle = COL.CH; ctx.lineWidth = 5; ctx.stroke();
+      }
+    }
+  }
+}
+
+function scenePhone(t, lt) {
+  ctx.fillStyle = COL.CH; ctx.fillRect(-100, -100, W + 200, H + 200);
+  const g = ctx.createRadialGradient(540, 900, 0, 540, 900, 900); g.addColorStop(0, rgba(0.3)); g.addColorStop(1, rgba(0)); ctx.fillStyle = g; ctx.fillRect(-100, -100, W + 200, H + 200);
+  const px = 250, py = 170, pw = 580, ph = 1060;
+  ctx.save(); ctx.translate(540, 790); const tilt = -0.05 + 0.015 * Math.sin(t * 1.5); ctx.rotate(tilt); ctx.scale(0.9, 0.9); ctx.translate(-540, -790);
+  rr(px - 22, py - 22, pw + 44, ph + 44, 80); ctx.fillStyle = COL.CH; ctx.fill(); ctx.strokeStyle = COL.PARCH; ctx.lineWidth = 12; ctx.stroke();
+  rr(px, py, pw, ph, 62); ctx.save(); ctx.clip();
+  ctx.fillStyle = COL.PARCH; ctx.fillRect(px, py, pw, ph);
+  // top bar: avatar + name blocks
+  ctx.beginPath(); ctx.arc(px + 70, py + 90, 38, 0, 7); ctx.fillStyle = COL.RED; ctx.fill(); ctx.strokeStyle = COL.CH; ctx.lineWidth = 6; ctx.stroke();
+  ctx.fillStyle = COL.CH; ctx.fillRect(px + 130, py + 68, 200, 20); ctx.fillStyle = rgbaC(0.4); ctx.fillRect(px + 130, py + 100, 130, 14);
+  // the posted frame = mini stage shot
+  const fx = px + 24, fy = py + 160, fw = pw - 48, fh = 560;
+  ctx.fillStyle = COL.CH; ctx.fillRect(fx, fy, fw, fh);
+  const gs = ctx.createRadialGradient(fx + fw / 2, fy + 220, 0, fx + fw / 2, fy + 220, 360); gs.addColorStop(0, rgba(0.85)); gs.addColorStop(1, rgba(0)); ctx.fillStyle = gs; ctx.fillRect(fx, fy, fw, fh);
+  ctx.fillStyle = rgbaR(0.55); ctx.beginPath(); ctx.moveTo(fx + 60, fy); ctx.lineTo(fx + 110, fy); ctx.lineTo(fx + 280, fy + 400); ctx.lineTo(fx + 120, fy + 400); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = COL.CH; ctx.beginPath(); ctx.arc(fx + fw / 2, fy + 250, 34, 0, 7); ctx.fill(); ctx.beginPath(); ctx.moveTo(fx + fw / 2 - 52, fy + 460); ctx.quadraticCurveTo(fx + fw / 2, fy + 270, fx + fw / 2 + 52, fy + 460); ctx.fill();
+  for (let i = 0; i < 9; i++) { const x = fx + 30 + i * 56, y = fy + fh - 22 - 8 * Math.abs(Math.sin(t * 6 + i)); ctx.beginPath(); ctx.arc(x, y, 30, 0, 7); ctx.fill(); }
+  // action row + captions lines
+  ctx.fillStyle = COL.CH; ctx.fillRect(px + 30, py + 770, 300, 18); ctx.fillStyle = rgbaC(0.4); ctx.fillRect(px + 30, py + 806, 220, 14);
+  // upload bar
+  const [p0, p1] = C.scenes[3].progress, u = prog(t, p0, p1);
+  rr(px + 30, py + 900, pw - 60, 26, 13); ctx.fillStyle = rgbaC(0.2); ctx.fill();
+  if (u > 0) { rr(px + 30, py + 900, (pw - 60) * io2(u), 26, 13); ctx.fillStyle = COL.RED; ctx.fill(); }
+  ctx.font = '800 26px "Montserrat"'; ctx.letterSpacing = '5px'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillStyle = COL.CH;
+  ctx.fillText(u >= 1 ? 'POSTED' : 'UPLOADING', px + 30, py + 960); ctx.letterSpacing = '0px';
+  ctx.restore();
+  rr(px + pw / 2 - 70, py + 14, 140, 18, 9); ctx.fillStyle = COL.CH; ctx.fill();    // speaker slot
+  ctx.restore();
+  // hearts float up out of the phone
+  C.scenes[3].hearts_t.forEach((ht, k) => drawHeart(300 + (k * 137) % 520, 1100 - (k % 2) * 40, 150 - (k % 3) * 18, t, ht, k));
+}
+
+// ------------------------------------------------------------------ footage wrapper: shake, Ken Burns, grain, vignette, REC HUD
+function punchAmt(sc, t) {
+  let a = 0;
+  for (const p of sc.punches) { const dt = t - p.t; if (dt < 0) continue; a += p.a * (dt < 2 / FPS ? dt * FPS / 2 : Math.exp(-(dt - 2 / FPS) * 7)); }
+  return a;
+}
+const TC = (t) => { const f = Math.floor(t * FPS), s = Math.floor(f / FPS), pad = (n) => String(n).padStart(2, '0'); return `00:00:${pad(s)}:${pad(f % FPS)}`; };
+function footage(sc, t) {
+  const lt = t - sc.S, dur = sc.E - sc.S;
+  const frame = Math.round(t * FPS);
+  ctx.save();
+  const sh = (a, b) => Math.sin(t * a) * b;
+  const dx = sh(2.3, 7) + sh(5.1 + 1, 4), dy = sh(1.9, 6) + sh(4.3, 3), rot = sh(1.7, 0.004);
+  const sc0 = 1.07 + 0.035 * (lt / dur) + punchAmt(sc, t);
+  ctx.translate(540, 900); ctx.rotate(rot); ctx.scale(sc0, sc0); ctx.translate(-540 + dx, -900 + dy);
+  ({ s1: sceneCorridor, s2: sceneDressing, s3: sceneWings, s4: scenePhone })[sc.id](t, lt);
+  ctx.restore();
+  // vignette + grain
+  const v = ctx.createRadialGradient(540, 960, 520, 540, 960, 1250); v.addColorStop(0, rgbaC(0)); v.addColorStop(1, rgbaC(0.6)); ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
+  for (let i = 0; i < 520; i++) { const k = frame * 977 + i * 13; ctx.fillStyle = (i % 2) ? rgba(0.1) : rgbaC(0.18); ctx.fillRect(rnd(k) * W, rnd(k + 0.5) * H, 3, 3); }
+  // REC HUD (camera clips only)
+  if (sc.id !== 's4') {
+    ctx.save();
+    ctx.strokeStyle = rgba(0.9); ctx.lineWidth = 6;
+    for (const [x, y, sx, sy] of [[60, 60, 1, 1], [W - 60, 60, -1, 1], [60, H - 60, 1, -1], [W - 60, H - 60, -1, -1]]) { ctx.beginPath(); ctx.moveTo(x, y + sy * 54); ctx.lineTo(x, y); ctx.lineTo(x + sx * 54, y); ctx.stroke(); }
+    if (Math.sin(t * Math.PI * 2) > -0.2) { ctx.beginPath(); ctx.arc(104, 112, 17, 0, 7); ctx.fillStyle = COL.RED; ctx.fill(); ctx.strokeStyle = COL.CH; ctx.lineWidth = 5; ctx.stroke(); }
+    ctx.font = '800 34px "Montserrat"'; ctx.letterSpacing = '6px'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.lineWidth = 8; ctx.strokeStyle = COL.CH; ctx.strokeText('REC', 136, 113); ctx.fillStyle = COL.PARCH; ctx.fillText('REC', 136, 113);
+    ctx.font = '700 28px "Montserrat"'; ctx.letterSpacing = '3px'; ctx.textAlign = 'right';
+    ctx.strokeText(TC(t), W - 100, 113); ctx.fillText(TC(t), W - 100, 113);
+    ctx.textAlign = 'left'; ctx.fillText('CAM ' + 'ABC'[+sc.id[1] - 1], 100, H - 104); ctx.letterSpacing = '0px';
+    rr(W - 170, H - 120, 70, 32, 6); ctx.strokeStyle = COL.PARCH; ctx.lineWidth = 5; ctx.stroke(); ctx.fillStyle = COL.PARCH; ctx.fillRect(W - 164, H - 114, 46, 20); ctx.fillRect(W - 98, H - 110, 8, 12);
+    ctx.restore();
+  }
+}
+
+// ------------------------------------------------------------------ per-scene overlay (captions, notes, stickers)
+const NOTE_POS = { s1: [250, 500, -0.12], s2: [400, 175, -0.05], s3: [330, 340, -0.1], s4: [320, 105, -0.08] };
+const ARROWS = {
+  s1: [[310, 560], [330, 700], [452, 770]],
+  s2: [[470, 215], [520, 250], [565, 305]],
+  s3: [[360, 410], [300, 640], [450, 800]],
+  s4: [[300, 150], [270, 235], [330, 310]],
+};
+const STICKER_POS = { s1: [875, 640], s2: [880, 1050], s3: [850, 340], s4: [830, 900] };
+const ICONS = { pass: iconPass, phones: iconPhones, live: iconLive, check: iconCheck };
+const SPK = [[130, 900], [960, 1110], [120, 1130]];
+
+function overlay(sc, t) {
+  const L = sc.lines;
+  if (sc.id === 's3') {
+    const hero = C.hero_t, ha = (t - hero) * FPS;
+    speedLines(540, 1480, COL.PARCH, t, hero);
+    burst(540, 1500, 500, COL.RED, COL.CH, t, hero, 4);
+    charLine(L[0].text, 540, 1190, fitSize(L[0].text, 330, 900), LA, t, L[0].t, { seed: 31 });
+    charLine(L[1].text, 540, 1500, fitSize(L[1].text, 380, 940), sty(COL.PARCH, [COL.CH, 24], [COL.PARCH, 10], [COL.CH, 16]), t, L[1].t, { seed: 37 });
+  } else {
+    const y0 = sc.id === 's4' ? 1400 : 1280, y1 = sc.id === 's4' ? 1600 : 1480;
+    charLine(L[0].text, 540, y0, fitSize(L[0].text, 190, 940), LA, t, L[0].t, { seed: sc.id.charCodeAt(1) });
+    charLine(L[1].text, 540, y1, fitSize(L[1].text, 190, 940), LB, t, L[1].t, { seed: sc.id.charCodeAt(1) + 9 });
+  }
+  const A = ARROWS[sc.id], N = NOTE_POS[sc.id];
+  arrow(A[0], A[1], A[2], t, sc.arrow_t);
+  note(sc.note.text, N[0], N[1], N[2], t, sc.note.t, sc.note.text.length > 12 ? 50 : 60);
+  const S = STICKER_POS[sc.id];
+  sticker(ICONS[sc.sticker.type], S[0], S[1], 230, t, sc.sticker.t, 0.12);
+  sc.sparkle_t.forEach((st, k) => sparkle(SPK[k][0], SPK[k][1] - (sc.id === 's3' ? 380 : 0), k === 0 ? 62 : 46, k % 2 ? COL.RED : COL.PARCH, COL.CH, t, st));
+}
+
+function drawClip(sc, t) { footage(sc, t); overlay(sc, t); }
+
+function drawFinal(t) {
+  const F = C.final;
+  ctx.fillStyle = COL.PARCH; ctx.fillRect(-60, -60, W + 120, H + 120);
+  speedLines(540, 700, COL.RED, t, F.badge_t);
+  burst(540, 700, 470, COL.RED, COL.CH, t, F.badge_t, 9);
+  const a = (t - F.badge_t) * FPS;
+  if (a > 0) {
+    const s = pop(a), settle = clamp((a - 8) / 14), bob = 1 + 0.018 * Math.sin(t * 6) * settle;
+    ctx.save(); ctx.translate(540, 700); ctx.rotate(0.05 * Math.sin(t * 3.5) * settle + (1 - clamp(a / 8)) * -0.2); ctx.scale(s * bob, s * bob);
+    ctx.beginPath(); ctx.arc(0, 0, 330, 0, 7); ctx.fillStyle = COL.PARCH; ctx.fill(); ctx.strokeStyle = COL.CH; ctx.lineWidth = 20; ctx.stroke();
+    const bw = 510, bh = bw * badge.naturalHeight / badge.naturalWidth; ctx.drawImage(badge, -bw / 2, -bh / 2, bw, bh);
+    ctx.restore();
+  }
+  charLine(F.title, 540, 1240, fitSize(F.title, 230, 900), sty(COL.RED, [COL.PARCH, 22], [COL.CH, 9], [COL.CH, 14]), t, F.title_t, { seed: 17 });
+  charLine(F.email, 540, 1450, fitSize(F.email, 120, 960), sty(COL.CH, [COL.PARCH, 16], [COL.RED, 8], [COL.RED, 11]), t, F.email_t, { seed: 21, track: 2 });
+  const m = (str, y, t0, size, track) => {
+    const aa = (t - t0) * FPS; if (aa <= 0) return;
+    ctx.save(); ctx.translate(540, y); ctx.scale(pop(aa), pop(aa)); ctx.font = `700 ${size}px "Montserrat"`; ctx.letterSpacing = track + 'px';
+    ctx.fillStyle = COL.CH; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(str, track / 2, 0); ctx.letterSpacing = '0px'; ctx.restore();
+  };
+  m(F.micro, 1590, F.micro_t, 31, 6);
+  m(F.group, 1650, F.group_t, 31, 6);
+  const sp = [[110, 1060], [975, 1355], [95, 1345]];
+  F.sparkle_t.forEach((st, k) => sparkle(sp[k][0], sp[k][1], k === 0 ? 60 : 46, k % 2 ? COL.CH : COL.RED, k % 2 ? COL.PARCH : COL.CH, t, st));
+}
+
+// ------------------------------------------------------------------ compositor
+function render(t) {
+  const sceneAt = (tt) => C.scenes.find(s => tt >= s.S && tt < s.E) || C.scenes[C.scenes.length - 1];
+  ctx.save();
+  const hero = C.hero_t, ha = (t - hero) * FPS;
+  if (ha >= 0 && ha < 10) ctx.translate(Math.sin(ha * 3.3) * 16 * (1 - ha / 10), Math.cos(ha * 2.7) * 12 * (1 - ha / 10));
+  const fS = C.final.S, sc = sceneAt(Math.min(t, fS - 1e-4));
+  if (t < fS - TRANS) drawClip(sceneAt(t), t);
+  else {
+    const p = io2(prog(t, fS - TRANS, fS));
+    ctx.save(); ctx.translate(0, -p * H * 0.22); drawClip(C.scenes[3], t); ctx.restore();
+    if (p > 0) {
+      const off = (1 - p) * (H + 50);
+      ctx.save(); ctx.beginPath(); ctx.moveTo(-100, H + 100);
+      for (let x = -100; x <= W + 100; x += 10) ctx.lineTo(x, off - 44 * Math.abs(Math.sin(x * Math.PI / 135)));
+      ctx.lineTo(W + 100, H + 100); ctx.closePath(); ctx.clip(); drawFinal(t); ctx.restore();
+      if (p < 1) {
+        ctx.beginPath(); for (let x = -100; x <= W + 100; x += 10) { const y = off - 44 * Math.abs(Math.sin(x * Math.PI / 135)); x === -100 ? ctx.moveTo(x, y) : ctx.lineTo(x, y); }
+        ctx.strokeStyle = COL.CH; ctx.lineWidth = 12; ctx.stroke();
+      }
+    }
+  }
+  // cut flashes (parchment, 2 frames) on the hard cuts and on the hero hit
+  const flash = (t0, a0, fr) => { const d = (t - t0) * FPS; if (d >= 0 && d < fr) { ctx.fillStyle = rgba(a0 * (1 - d / fr)); ctx.fillRect(-60, -60, W + 120, H + 120); } };
+  C.cuts.forEach(c => flash(c, 0.8, 2));
+  flash(hero, 1.0, 1.2);
+  ctx.restore();
+}
+
+window.DEMO = { width: W, height: H, fps: FPS, duration: C.duration, motionBlur: { samples: 1, shutter: 0.5 } };
+(async () => {
+  await document.fonts.load(FONT(100), "BACKSTAGE ACCESS GET READY WITH US SHOW TIME!! POST IT TONIGHT LET'S ROLL contact@brmgdc.com THIS WAY PRE-SHOW GLOW HERE THEY COME FANS GET IT FIRST LIVE");
+  await document.fonts.load('800 34px "Montserrat"', 'REC CAM ABC STAGE ALL ACCESS BRMG POSTED UPLOADING 0123456789:');
+  await document.fonts.load('700 31px "Montserrat"', 'DIGITAL CONTENT FOR LIVE EVENTS BEAT REPUBLIC MEDIA GROUP');
+  await document.fonts.ready;
+  await badge.decode();
+  window.renderAt = async (t) => { render(t); };
+  render(0);
+  window.__ready = true;
+})().catch((e) => { console.error('init failed', e && e.stack || e); });
+</script>
+</body>
+</html>
