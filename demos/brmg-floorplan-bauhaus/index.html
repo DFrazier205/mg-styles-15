@@ -1,0 +1,179 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>BRMG · event floor plan — Bauhaus kinetic poster (9:16)</title>
+<link rel="stylesheet" href="/assets/fonts/fonts.css">
+<style>
+  html, body { margin: 0; padding: 0; background: #F2F1ED; overflow: hidden; }
+  canvas { display: block; width: 1080px; height: 1920px; }
+</style>
+</head>
+<body>
+<canvas id="c" width="1080" height="1920"></canvas>
+<script type="module">
+// BRMG event floor plan — Bauhaus kinetic poster. Canvas2D, every frame a pure function of t.
+// Palette (and nothing else): Cover Red #ED2F2F, Paper #F2F1ED, Charcoal #3D3935, Parchment #DFD7C7.
+// Strict 120 px module grid (9 x 16 page, 7 x 6 plan). No overshoot: power2.in drops land dead on their beat.
+const W = 1080, H = 1920, FPS = 24, DURATION = 15, M = 120, DEG = Math.PI / 180;
+const RED = '#ED2F2F', PAPER = '#F2F1ED', CH = '#3D3935', PARCH = '#DFD7C7';
+const C = await (await fetch('/demos/brmg-floorplan-bauhaus/cues.json')).json();
+const [OX, OY] = C.plan.origin, [PX, PY] = C.pivot;
+
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const prog = (t, t0, t1) => clamp((t - t0) / (t1 - t0));
+const in2 = u => u * u;
+const io2 = u => (u < 0.5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2);
+
+// palettes: P0 paper (base), P1 charcoal "night" beam, P2 cover-red "light" beam / final poster
+const PAL = {
+  P0: { bg: PAPER, grid: PARCH, frame: CH, stage: RED, table: CH, hub: PAPER, truss: CH, bFill: PARCH, bStroke: CH, text: CH },
+  P1: { bg: CH, grid: PARCH, frame: PAPER, stage: RED, table: PAPER, hub: CH, truss: PARCH, bFill: PARCH, bStroke: PAPER, text: PAPER },
+  P2: { bg: RED, grid: PARCH, frame: PAPER, stage: CH, table: PAPER, hub: RED, truss: PAPER, bFill: PARCH, bStroke: CH, text: PAPER },
+};
+
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d', { alpha: false });
+
+// ------------------------------------------------------------------ type metrics (Anton headline fitted to 7 modules)
+const PLAN_W = C.plan.cols * M;               // 840
+const HL = {};
+function measureHeadline() {
+  const fit = (word) => {
+    ctx.font = '100px "Anton"'; ctx.letterSpacing = '0px';
+    const m = ctx.measureText(word);
+    const ink = m.actualBoundingBoxLeft + m.actualBoundingBoxRight;
+    const size = 100 * PLAN_W / ink;
+    ctx.font = size + 'px "Anton"';
+    const m2 = ctx.measureText(word);
+    const cap = ctx.measureText('H').actualBoundingBoxAscent;
+    return { word, size, bbL: m2.actualBoundingBoxLeft, cap };
+  };
+  HL.e = fit('EVENT'); HL.p = fit('PLANNING');
+  HL.e.top = 900;                                                  // half-module line 7.5, 60 px under the plan
+  HL.e.base = HL.e.top + HL.e.cap;
+  HL.p.top = HL.e.base + 48; HL.p.base = HL.p.top + HL.p.cap;
+  console.log('headline', JSON.stringify(HL));
+}
+
+// ------------------------------------------------------------------ scene (one palette)
+function line(x0, y0, x1, y1, col, w) { ctx.strokeStyle = col; ctx.lineWidth = w; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke(); }
+
+function drawGrid(t, pal) {
+  const nV = W / M + 1, nH = H / M + 1, n = nV + nH;
+  for (let i = 0; i < n; i++) {
+    const start = C.grid.t0 + (i / (n - 1)) * 0.33;
+    const p = prog(t, start, start + 0.17);
+    if (p <= 0) continue;
+    if (i < nV) line(i * M, 0, i * M, H * p, pal.grid, 2);
+    else line(0, (i - nV) * M, W * p, (i - nV) * M, pal.grid, 2);
+  }
+  // plan frame
+  const fp = prog(t, 0.1, 0.5);
+  if (fp > 0) {
+    const w = PLAN_W, h = C.plan.rows * M, per = 2 * (w + h), d = per * fp;
+    ctx.strokeStyle = pal.frame; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(OX, OY);
+    const pts = [[OX + w, OY], [OX + w, OY + h], [OX, OY + h], [OX, OY]]; let x = OX, y = OY, left = d;
+    for (const [nx, ny] of pts) { const seg = Math.abs(nx - x) + Math.abs(ny - y); if (left >= seg) { ctx.lineTo(nx, ny); left -= seg; x = nx; y = ny; } else { const k = left / seg; ctx.lineTo(x + (nx - x) * k, y + (ny - y) * k); left = 0; break; } }
+    ctx.stroke();
+  }
+}
+
+function drawPlacement(c, t, pal) {
+  const start = c.t - c.dur;
+  if (t < start) return;
+  const u = prog(t, start, c.t), e = in2(u);
+  const x0 = OX + c.cell[0] * M, y0 = OY + c.cell[1] * M;
+  if (c.kind === 'stage') {
+    ctx.fillStyle = pal.stage; ctx.fillRect(x0 - 9 * M * (1 - e), y0, c.w * M, M);
+  } else if (c.kind === 'table') {
+    const cx = x0 + M / 2, cy = y0 + M / 2 - M * (1 - e);
+    ctx.fillStyle = pal.table; ctx.beginPath(); ctx.arc(cx, cy, 48, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = pal.hub; ctx.beginPath(); ctx.arc(cx, cy, 12, 0, Math.PI * 2); ctx.fill();
+  } else if (c.kind === 'truss') {
+    const cx = x0 + M / 2, cy = y0 + M / 2;
+    ctx.save(); ctx.translate(cx, cy); ctx.rotate(((c.up ? 0 : 180) + (1 - e) * 180) * DEG);
+    ctx.fillStyle = pal.truss; ctx.beginPath(); ctx.moveTo(0, -48); ctx.lineTo(48, 48); ctx.lineTo(-48, 48); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  } else if (c.kind === 'booth') {
+    const s = e, cx = x0 + M / 2, cy = y0 + M / 2;
+    if (s > 0.001) {
+      ctx.fillStyle = pal.bFill; ctx.fillRect(cx - 48 * s, cy - 48 * s, 96 * s, 96 * s);
+      ctx.strokeStyle = pal.bStroke; ctx.lineWidth = 6; ctx.strokeRect(cx - 45 * s, cy - 45 * s, 90 * s, 90 * s);
+    }
+  }
+}
+
+function drawText(t, pal) {
+  // tag, present from frame 0
+  ctx.fillStyle = pal.text; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+  ctx.font = '600 22px "Montserrat"'; ctx.letterSpacing = '7px';
+  ctx.fillText('BEAT REPUBLIC MEDIA GROUP', OX, 84); ctx.letterSpacing = '0px';
+  // headline: slides in whole modules, lands dead on its beat
+  for (const h of C.headline) {
+    const s = h.id === 'EVENT' ? HL.e : HL.p, start = h.t - h.dur;
+    if (t < start) continue;
+    const e = in2(prog(t, start, h.t)), dir = h.from_ === 'left' ? -1 : 1;
+    ctx.font = s.size + 'px "Anton"'; ctx.letterSpacing = '0px';
+    ctx.fillText(h.id, OX + s.bbL + dir * 9 * M * (1 - e), s.base);
+  }
+  // rule + url
+  const rp = prog(t, C.rule.t0, C.rule.t1);
+  if (rp > 0) line(OX, 1560, OX + PLAN_W * rp, 1560, pal.text, 6);
+  const n = Math.min(C.url.text.length, Math.floor((t - C.url.t0) / C.url.step + 1e-6) + 1);
+  if (t >= C.url.t0 && n > 0) {
+    ctx.font = '700 38px "Montserrat"'; ctx.letterSpacing = '12px';
+    ctx.fillText(C.url.text.slice(0, n), OX, 1626); ctx.letterSpacing = '0px';
+  }
+}
+
+function drawScene(t, pal) {
+  ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, W, H);
+  drawGrid(t, pal);
+  for (const c of C.placements) drawPlacement(c, t, pal);
+  drawText(t, pal);
+}
+
+// ------------------------------------------------------------------ light: a sector pivoting about the stage front
+function sector(a0, a1) {
+  ctx.beginPath(); ctx.moveTo(PX, PY); ctx.arc(PX, PY, 3000, a0 * DEG, a1 * DEG, false); ctx.closePath();
+}
+function clipSector(a0, a1, pal, t) {
+  ctx.save(); sector(a0, a1); ctx.clip(); drawScene(t, pal); ctx.restore();
+}
+
+function render(t) {
+  const flooded = t >= C.flood.t1;
+  drawScene(t, flooded ? PAL.P2 : PAL.P0);
+  for (const s of C.sweeps) {
+    if (t >= s.t0 && t < s.t1) {
+      const a = s.a0 + (s.a1 - s.a0) * prog(t, s.t0, s.t1);
+      clipSector(a - C.halfwidth, a + C.halfwidth, PAL[s.pal], t);
+    }
+  }
+  if (t >= C.flood.t0 && t < C.flood.t1) {
+    const sw = C.sweeps[C.sweeps.length - 1], trail = sw.a1 + C.halfwidth, lead0 = sw.a1 - C.halfwidth;
+    const lead = lead0 + (trail - 360 - lead0) * io2(prog(t, C.flood.t0, C.flood.t1));
+    clipSector(lead, trail, PAL.P2, t);
+  }
+  const hs = C.hold_sweep;
+  if (t >= hs.t0) {
+    const a = hs.a0 + (hs.a1 - hs.a0) * prog(t, hs.t0, hs.t1);
+    clipSector(a - hs.halfwidth, a + hs.halfwidth, PAL[hs.pal], t);
+  }
+}
+
+window.DEMO = { width: W, height: H, fps: FPS, duration: DURATION, motionBlur: { samples: 1, shutter: 0.5 } };
+(async () => {
+  await document.fonts.load('100px "Anton"', 'EVENT PLANNING');
+  await document.fonts.load('600 22px "Montserrat"', 'BEAT REPUBLIC MEDIA GROUP');
+  await document.fonts.load('700 38px "Montserrat"', 'brmgdc.com');
+  await document.fonts.ready;
+  measureHeadline();
+  window.renderAt = async (t) => { render(t); };
+  render(0);
+  window.__ready = true;
+})().catch((e) => { console.error('init failed', e && e.stack || e); });
+</script>
+</body>
+</html>

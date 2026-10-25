@@ -1,0 +1,275 @@
+{
+ "fps": 24,
+ "duration": 15.0,
+ "bpm": 120,
+ "beat": 0.5,
+ "comment": "120 bpm, beat 0.5 s = 12 frames; 16th = 3 frames. Module 120 px, page grid 9x16, plan 7x6 modules at origin (120,120). Sweep angles are degrees clockwise from +x about the pivot (stage front centre); angle 90 = straight down.",
+ "M": 120,
+ "plan": {
+  "origin": [
+   120,
+   120
+  ],
+  "cols": 7,
+  "rows": 6
+ },
+ "pivot": [
+  540,
+  240
+ ],
+ "grid": {
+  "t0": 0.0,
+  "t1": 0.5
+ },
+ "placements": [
+  {
+   "id": "stage",
+   "kind": "stage",
+   "cell": [
+    1,
+    0
+   ],
+   "w": 5,
+   "t": 0.5,
+   "dur": 0.25
+  },
+  {
+   "id": "table1",
+   "kind": "table",
+   "cell": [
+    3,
+    3
+   ],
+   "t": 1.0,
+   "dur": 0.25
+  },
+  {
+   "id": "table2",
+   "kind": "table",
+   "cell": [
+    1,
+    3
+   ],
+   "t": 1.5,
+   "dur": 0.25
+  },
+  {
+   "id": "table3",
+   "kind": "table",
+   "cell": [
+    5,
+    3
+   ],
+   "t": 2.0,
+   "dur": 0.25
+  },
+  {
+   "id": "table4",
+   "kind": "table",
+   "cell": [
+    5,
+    5
+   ],
+   "t": 2.5,
+   "dur": 0.25
+  },
+  {
+   "id": "table5",
+   "kind": "table",
+   "cell": [
+    3,
+    5
+   ],
+   "t": 3.0,
+   "dur": 0.25
+  },
+  {
+   "id": "table6",
+   "kind": "table",
+   "cell": [
+    1,
+    5
+   ],
+   "t": 3.5,
+   "dur": 0.25
+  },
+  {
+   "id": "truss1",
+   "kind": "truss",
+   "cell": [
+    1,
+    1
+   ],
+   "up": true,
+   "t": 4.0,
+   "dur": 0.25
+  },
+  {
+   "id": "truss2",
+   "kind": "truss",
+   "cell": [
+    2,
+    1
+   ],
+   "up": false,
+   "t": 4.25,
+   "dur": 0.25
+  },
+  {
+   "id": "truss3",
+   "kind": "truss",
+   "cell": [
+    3,
+    1
+   ],
+   "up": true,
+   "t": 4.5,
+   "dur": 0.25
+  },
+  {
+   "id": "truss4",
+   "kind": "truss",
+   "cell": [
+    4,
+    1
+   ],
+   "up": false,
+   "t": 4.75,
+   "dur": 0.25
+  },
+  {
+   "id": "truss5",
+   "kind": "truss",
+   "cell": [
+    5,
+    1
+   ],
+   "up": true,
+   "t": 5.0,
+   "dur": 0.25
+  },
+  {
+   "id": "booth1",
+   "kind": "booth",
+   "cell": [
+    0,
+    3
+   ],
+   "t": 5.5,
+   "dur": 0.125
+  },
+  {
+   "id": "booth2",
+   "kind": "booth",
+   "cell": [
+    6,
+    3
+   ],
+   "t": 5.625,
+   "dur": 0.125
+  },
+  {
+   "id": "booth3",
+   "kind": "booth",
+   "cell": [
+    0,
+    4
+   ],
+   "t": 5.75,
+   "dur": 0.125
+  },
+  {
+   "id": "booth4",
+   "kind": "booth",
+   "cell": [
+    6,
+    4
+   ],
+   "t": 5.875,
+   "dur": 0.125
+  },
+  {
+   "id": "booth5",
+   "kind": "booth",
+   "cell": [
+    0,
+    5
+   ],
+   "t": 6.0,
+   "dur": 0.125
+  },
+  {
+   "id": "booth6",
+   "kind": "booth",
+   "cell": [
+    6,
+    5
+   ],
+   "t": 6.125,
+   "dur": 0.125
+  }
+ ],
+ "headline": [
+  {
+   "id": "EVENT",
+   "t": 6.5,
+   "dur": 0.5,
+   "from_": "left"
+  },
+  {
+   "id": "PLANNING",
+   "t": 7.0,
+   "dur": 0.5,
+   "from_": "right"
+  }
+ ],
+ "sweeps": [
+  {
+   "id": "A",
+   "t0": 7.5,
+   "t1": 9.0,
+   "a0": 160,
+   "a1": 20,
+   "pal": "P2"
+  },
+  {
+   "id": "B",
+   "t0": 9.0,
+   "t1": 10.0,
+   "a0": 20,
+   "a1": 160,
+   "pal": "P1"
+  },
+  {
+   "id": "C",
+   "t0": 10.0,
+   "t1": 10.5,
+   "a0": 160,
+   "a1": 20,
+   "pal": "P2"
+  }
+ ],
+ "halfwidth": 12,
+ "flood": {
+  "t0": 10.5,
+  "t1": 11.5
+ },
+ "hold_sweep": {
+  "t0": 11.5,
+  "t1": 15.0,
+  "a0": 165,
+  "a1": 15,
+  "pal": "P0",
+  "halfwidth": 9
+ },
+ "rule": {
+  "t0": 11.5,
+  "t1": 12.0
+ },
+ "url": {
+  "text": "brmgdc.com",
+  "t0": 12.0,
+  "step": 0.125
+ },
+ "end": 15.0
+}
