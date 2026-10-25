@@ -1,0 +1,28 @@
+{
+  "fps": 24,
+  "duration": 15.0,
+  "bpm": 96,
+  "bar_anchor": 0.5,
+  "comment": "All times in seconds. 96 bpm: beat = 0.625 s = 15 frames, bar = 2.5 s. Bar lines 0.5, 3.0, 5.5, 8.0, 10.5, 13.0. Picture is animated on 2s (12 drawings/s) with a 4-drawing boil cycle; the camera slide is on 1s.",
+  "header": { "tag": 0.0, "title": 0.0 },
+  "rows": [0.5, 3.0, 5.5, 8.0],
+  "rel": { "box": 0.0, "word": 0.25, "tick": 0.875, "icon": 1.25 },
+  "items": ["BOOKINGS", "CONTENT", "EVENTS", "SOCIAL"],
+  "icons": ["calendar", "mic", "camera", "phone"],
+  "slide": [10.0, 11.9],
+  "cam_y": 1900,
+  "lines": [
+    { "text": "We handle", "start": 11.1 },
+    { "text": "the business", "start": 11.6 },
+    { "text": "so you handle", "start": 12.05 },
+    { "text": "the music.", "start": 12.5 }
+  ],
+  "underline": [13.1, 13.45],
+  "email": { "text": "contact@brmgdc.com", "start": 13.45 },
+  "sfx": {
+    "page_open": 0.04,
+    "page_flip_slide": 9.95,
+    "slide_whoosh": 10.9
+  },
+  "end": 15.0
+}

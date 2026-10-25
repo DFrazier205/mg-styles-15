@@ -1,0 +1,32 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>BRMG · notebook checklist — cel animation / line boil (9:16)</title>
+<link rel="stylesheet" href="/assets/fonts/fonts.css">
+<style>
+  html, body { margin: 0; padding: 0; background: #F2F1ED; overflow: hidden; }
+  canvas { display: block; width: 1080px; height: 1920px; }
+</style>
+<script type="importmap">{"imports":{
+  "simplex-noise":"/node_modules/simplex-noise/dist/esm/simplex-noise.js",
+  "opentype":"/node_modules/opentype.js/dist/opentype.mjs"}}</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script type="module">
+  import { init, render, W, H, FPS, DURATION } from './js/scene.js';
+  window.DEMO = { width: W, height: H, fps: FPS, duration: DURATION, motionBlur: { samples: 1, shutter: 0.5 } };
+  (async () => {
+    await document.fonts.load('120px "Anton"', 'BOOKINGS CONTENT EVENTS SOCIAL');
+    await document.fonts.load('120px "Bagel Fat One"', 'We handle the business so you handle the music.');
+    await document.fonts.load('600 26px "Montserrat"', 'BEAT REPUBLIC MEDIA GROUP contact@brmgdc.com');
+    await document.fonts.ready;
+    await init(document.getElementById('c'), 1);
+    window.renderAt = async (t) => { render(t); };
+    render(0);
+    window.__ready = true;
+  })().catch((e) => { console.error('init failed', e && e.stack || e); });
+</script>
+</body>
+</html>
