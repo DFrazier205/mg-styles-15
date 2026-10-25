@@ -1,0 +1,113 @@
+{
+ "fps": 30,
+ "duration": 15.0,
+ "bpm": 120,
+ "comment": "120 bpm: beat 0.5 s = 15 frames, bar 2 s. Scenes slide up over a 10-frame scalloped wipe that ends on S. Numeral pops on S, caption lines on S+0.5/1.0/1.5, icon+sparkles S+2.0. Hero = tip 3 (60%) with flash + shake. Final badge S=12.5, url letters from 13.0 (2-frame stagger).",
+ "trans": 0.3333333333333333,
+ "scenes": [
+  {
+   "id": "intro",
+   "S": 0.0,
+   "bg": "RED"
+  },
+  {
+   "id": "t1",
+   "S": 2.0,
+   "bg": "PARCH",
+   "numeral": "1",
+   "lines": [
+    "KEEP A",
+    "CONTENT",
+    "CALENDAR"
+   ],
+   "icon": "calendar",
+   "numeral_t": 2.0,
+   "line_t": [
+    2.5,
+    3.0,
+    3.5
+   ],
+   "icon_t": 4.0,
+   "sparkle_t": [
+    4.0,
+    4.25,
+    4.5
+   ]
+  },
+  {
+   "id": "t2",
+   "S": 5.5,
+   "bg": "CH",
+   "numeral": "2",
+   "lines": [
+    "TRACK",
+    "EVERY",
+    "SHOW"
+   ],
+   "icon": "ticket",
+   "numeral_t": 5.5,
+   "line_t": [
+    6.0,
+    6.5,
+    7.0
+   ],
+   "icon_t": 7.5,
+   "sparkle_t": [
+    7.5,
+    7.75,
+    8.0
+   ]
+  },
+  {
+   "id": "t3",
+   "S": 9.0,
+   "bg": "RED",
+   "numeral": "3",
+   "lines": [
+    "KNOW",
+    "YOUR",
+    "INDUSTRY"
+   ],
+   "icon": "magnifier",
+   "numeral_t": 9.0,
+   "line_t": [
+    9.5,
+    10.0,
+    10.5
+   ],
+   "icon_t": 11.0,
+   "sparkle_t": [
+    11.0,
+    11.25,
+    11.5
+   ]
+  },
+  {
+   "id": "final",
+   "S": 12.5,
+   "bg": "PARCH"
+  }
+ ],
+ "intro": {
+  "title": "3 TIPS",
+  "title_t": -0.1,
+  "micro": "FROM BEAT REPUBLIC MEDIA GROUP",
+  "micro_t": 0.5,
+  "sparkle_t": [
+   0.8,
+   1.1
+  ]
+ },
+ "final": {
+  "badge_t": 12.5,
+  "url": "brmgdc.com",
+  "url_t": 13.0,
+  "sparkle_t": [
+   13.0,
+   13.25,
+   13.5
+  ]
+ },
+ "stagger": 0.06666666666666667,
+ "end": 15.0
+}

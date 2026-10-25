@@ -1,0 +1,273 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>BRMG · 3 tips — Hanazi kinetic captions (9:16)</title>
+<link rel="stylesheet" href="/assets/fonts/fonts.css">
+<style>
+  html, body { margin: 0; padding: 0; background: #DFD7C7; overflow: hidden; }
+  canvas { display: block; width: 1080px; height: 1920px; }
+</style>
+</head>
+<body>
+<canvas id="c" width="1080" height="1920"></canvas>
+<script type="module">
+// BRMG vertical tips film — 综艺花字 / Hanazi kinetic captions.
+// Three-layer sticker type (fill + thick ring + outer ring + drop shadow), 8-frame overshoot pops with 2-frame
+// per-character stagger, burst boxes, speed-line flashes, sparkles, icon stickers. Every frame is a pure function of t.
+// Palette (and nothing else): Cover Red #ED2F2F, Parchment #DFD7C7, Charcoal #3D3935 (+ the supplied logo file).
+const W = 1080, H = 1920, FPS = 30;
+const COL = { RED: '#ED2F2F', PARCH: '#DFD7C7', CH: '#3D3935' };
+const C = await (await fetch('/demos/brmg-tips-hanazi/cues.json')).json();
+const STAG = C.stagger, TRANS = C.trans;
+
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const prog = (t, t0, t1) => clamp((t - t0) / (t1 - t0));
+const io2 = u => (u < 0.5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2);
+const outC = u => 1 - Math.pow(1 - u, 3);
+const rnd = (k) => { const x = Math.sin(k * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+
+// pop: scale 0 -> 1.15 -> 1.0 in 8 frames (age in frames)
+function pop(a) {
+  if (a <= 0) return 0;
+  if (a < 5) return 1.15 * outC(a / 5);
+  if (a < 8) { const u = (a - 5) / 3; return 1.15 - 0.15 * u * u * (3 - 2 * u); }
+  return 1;
+}
+const popT = (t, t0) => pop((t - t0) * FPS);
+
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d', { alpha: false });
+ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.miterLimit = 2;
+
+const badge = new Image();
+badge.src = '/assets/brands/brmg/logos/BRMG-Logo-minumal-emboss-white.png';
+
+// ------------------------------------------------------------------ sticker type
+const FONT = (s) => `${s}px "Bagel Fat One"`;
+function glyph(str, st, size) {
+  // st: { F, R1:[col,w], R2:[col,w]|null, S:[col,dy]|null }; drawn centred on (0,0)
+  ctx.font = FONT(size); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const total = (st.R1 ? st.R1[1] : 0) + (st.R2 ? 2 * st.R2[1] : 0);
+  if (st.S) { ctx.strokeStyle = st.S[0]; ctx.lineWidth = total; ctx.strokeText(str, 0, st.S[1]); ctx.fillStyle = st.S[0]; ctx.fillText(str, 0, st.S[1]); }
+  if (st.R2) { ctx.strokeStyle = st.R2[0]; ctx.lineWidth = total; ctx.strokeText(str, 0, 0); }
+  if (st.R1) { ctx.strokeStyle = st.R1[0]; ctx.lineWidth = st.R1[1]; ctx.strokeText(str, 0, 0); }
+  ctx.fillStyle = st.F; ctx.fillText(str, 0, 0);
+}
+
+function charLine(str, cx, cy, size, st, t, t0, o = {}) {
+  ctx.font = FONT(size);
+  const adv = [...str].map(ch => ctx.measureText(ch).width + (o.track || 0));
+  const total = adv.reduce((a, b) => a + b, 0);
+  let x = cx - total / 2;
+  [...str].forEach((ch, k) => {
+    const age = (t - t0 - k * STAG) * FPS;
+    const px = x + adv[k] / 2; x += adv[k];
+    if (ch === ' ' || age <= 0) return;
+    const s = pop(age);
+    const settle = clamp((age - 8) / 14);
+    const rot = (rnd(k + (o.seed || 0)) - 0.5) * 0.16 * (1 - 0.6 * settle) + 0.03 * Math.sin(t * 7 + k * 0.9) * settle;
+    const dy = 5 * Math.sin(t * 6 + k * 0.8) * settle;
+    ctx.save(); ctx.translate(px, cy + dy); ctx.rotate(rot); ctx.scale(s, s);
+    glyph(ch, st, size); ctx.restore();
+  });
+}
+function fitSize(str, max, wmax) {
+  ctx.font = FONT(100); const w = ctx.measureText(str).width;
+  return Math.min(max, 100 * wmax / w);
+}
+
+// ------------------------------------------------------------------ decorations
+function burst(cx, cy, R, fill, edge, t, t0, seed = 0) {
+  const a = (t - t0) * FPS; if (a <= 0) return;
+  const s = pop(a) * (1 + 0.012 * Math.sin(t * 9));
+  const n = 16; ctx.save(); ctx.translate(cx, cy); ctx.rotate(0.12 * t + seed); ctx.scale(s, s);
+  ctx.beginPath();
+  for (let i = 0; i < n * 2; i++) {
+    const r = (i % 2 === 0 ? R : R * 0.76) * (0.94 + 0.1 * rnd(i + seed * 7));
+    const ang = (i / (n * 2)) * Math.PI * 2;
+    i ? ctx.lineTo(Math.cos(ang) * r, Math.sin(ang) * r) : ctx.moveTo(Math.cos(ang) * r, Math.sin(ang) * r);
+  }
+  ctx.closePath(); ctx.fillStyle = fill; ctx.fill(); ctx.strokeStyle = edge; ctx.lineWidth = 12; ctx.stroke(); ctx.restore();
+}
+function speedLines(cx, cy, col, t, t0) {         // radial flash for the first 7 frames after a hit
+  const a = (t - t0) * FPS; if (a < 0 || a >= 7) return;
+  const n = 30, hw = 0.055 * (1 - a / 7), len = 1500 * (0.55 + 0.45 * outC(a / 3));
+  ctx.fillStyle = col;
+  for (let i = 0; i < n; i++) {
+    const ang = (i / n) * Math.PI * 2 + 0.07 * a;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(ang - hw) * len, cy + Math.sin(ang - hw) * len);
+    ctx.lineTo(cx + Math.cos(ang + hw) * len, cy + Math.sin(ang + hw) * len); ctx.closePath(); ctx.fill();
+  }
+}
+function sparkle(cx, cy, r, fill, edge, t, t0) {
+  const a = (t - t0) * FPS; if (a <= 0) return;
+  const s = pop(a) * (0.86 + 0.18 * Math.sin(t * 8 + cx));
+  ctx.save(); ctx.translate(cx, cy); ctx.rotate(0.15 * Math.sin(t * 4 + cy)); ctx.scale(s, s);
+  ctx.beginPath();
+  for (let i = 0; i < 8; i++) { const ang = i * Math.PI / 4 - Math.PI / 2, rr = i % 2 === 0 ? r : r * 0.28; const x = Math.cos(ang) * rr, y = Math.sin(ang) * rr; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+  ctx.closePath(); ctx.strokeStyle = edge; ctx.lineWidth = 14; ctx.stroke(); ctx.fillStyle = fill; ctx.fill(); ctx.restore();
+}
+function sticker(fn, cx, cy, size, edge, t, t0, tilt = 0) {
+  const a = (t - t0) * FPS; if (a <= 0) return;
+  const s = pop(a), settle = clamp((a - 8) / 14);
+  ctx.save(); ctx.translate(cx, cy + 6 * Math.sin(t * 5)); ctx.rotate(tilt + 0.07 * Math.sin(t * 6) * settle); ctx.scale(s, s);
+  fn(size, edge); ctx.restore();
+}
+const rr = (x, y, w, h, r) => { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); };
+function iconCalendar(s, edge) {
+  const w = s, h = s * 0.92, x = -w / 2, y = -h / 2;
+  rr(x, y, w, h, 26); ctx.strokeStyle = edge; ctx.lineWidth = 34; ctx.stroke(); ctx.fillStyle = COL.PARCH; ctx.fill();
+  rr(x, y, w, h, 26); ctx.strokeStyle = COL.CH; ctx.lineWidth = 12; ctx.stroke();
+  ctx.save(); rr(x, y, w, h, 26); ctx.clip(); ctx.fillStyle = COL.RED; ctx.fillRect(x, y, w, h * 0.27); ctx.restore();
+  ctx.strokeStyle = COL.CH; ctx.lineWidth = 12; ctx.beginPath(); ctx.moveTo(x, y + h * 0.27); ctx.lineTo(x + w, y + h * 0.27); ctx.stroke();
+  for (const k of [-0.28, 0.28]) { ctx.lineWidth = 16; ctx.beginPath(); ctx.moveTo(k * w, y - 18); ctx.lineTo(k * w, y + 22); ctx.stroke(); }
+  ctx.fillStyle = COL.CH;
+  for (let r = 0; r < 2; r++) for (let c = 0; c < 3; c++) { const px = x + w * (0.22 + 0.28 * c), py = y + h * (0.5 + 0.22 * r); if (r === 1 && c === 2) { ctx.fillStyle = COL.RED; ctx.beginPath(); ctx.arc(px, py, 17, 0, 7); ctx.fill(); ctx.fillStyle = COL.CH; } else ctx.fillRect(px - 11, py - 11, 22, 22); }
+}
+function iconTicket(s, edge) {
+  const w = s * 1.15, h = s * 0.74, x = -w / 2, y = -h / 2, n = 22;
+  const path = () => { ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, -n); ctx.arc(x + w, 0, n, -Math.PI / 2, Math.PI / 2, true); ctx.lineTo(x + w, y + h); ctx.lineTo(x, y + h); ctx.lineTo(x, n); ctx.arc(x, 0, n, Math.PI / 2, -Math.PI / 2, true); ctx.closePath(); };
+  path(); ctx.strokeStyle = edge; ctx.lineWidth = 34; ctx.stroke(); ctx.fillStyle = COL.RED; ctx.fill();
+  path(); ctx.strokeStyle = COL.CH; ctx.lineWidth = 12; ctx.stroke();
+  ctx.setLineDash([14, 14]); ctx.strokeStyle = COL.PARCH; ctx.lineWidth = 8; ctx.beginPath(); ctx.moveTo(x + w * 0.7, y + 14); ctx.lineTo(x + w * 0.7, y + h - 14); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle = COL.PARCH; ctx.beginPath();
+  for (let i = 0; i < 10; i++) { const ang = i * Math.PI / 5 - Math.PI / 2, r = i % 2 ? 22 : 52; const px = x + w * 0.34 + Math.cos(ang) * r, py = Math.sin(ang) * r; i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }
+  ctx.closePath(); ctx.fill(); ctx.strokeStyle = COL.CH; ctx.lineWidth = 8; ctx.stroke();
+}
+function iconMagnifier(s, edge) {
+  const r = s * 0.34, cx = -s * 0.08, cy = -s * 0.1;
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = edge; ctx.lineWidth = 62; ctx.beginPath(); ctx.moveTo(cx + r * 0.72, cy + r * 0.72); ctx.lineTo(s * 0.44, s * 0.42); ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, 7); ctx.lineWidth = 56; ctx.stroke();
+  ctx.strokeStyle = COL.CH; ctx.lineWidth = 36; ctx.beginPath(); ctx.moveTo(cx + r * 0.72, cy + r * 0.72); ctx.lineTo(s * 0.44, s * 0.42); ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, 7); ctx.fillStyle = COL.PARCH; ctx.fill(); ctx.strokeStyle = COL.CH; ctx.lineWidth = 30; ctx.stroke();
+  ctx.strokeStyle = COL.RED; ctx.lineWidth = 14; ctx.beginPath(); ctx.arc(cx, cy, r * 0.62, Math.PI * 1.05, Math.PI * 1.55); ctx.stroke();
+}
+const ICON = { calendar: iconCalendar, ticket: iconTicket, magnifier: iconMagnifier };
+
+// ------------------------------------------------------------------ scenes
+const sty = (F, r1, r2, s) => ({ F, R1: r1, R2: r2, S: s });
+const LOOK = {
+  t1: { bg: COL.PARCH, burst: COL.RED, burstEdge: COL.CH, flash: COL.RED, edge: COL.CH,
+        num: sty(COL.PARCH, [COL.CH, 26], null, [COL.CH, 18]),
+        l: [sty(COL.CH, [COL.PARCH, 16], [COL.RED, 8], [COL.RED, 10]), sty(COL.RED, [COL.PARCH, 16], [COL.CH, 8], [COL.CH, 10]), sty(COL.CH, [COL.PARCH, 16], [COL.RED, 8], [COL.RED, 10])],
+        sp: [COL.RED, COL.CH] },
+  t2: { bg: COL.CH, burst: COL.RED, burstEdge: COL.PARCH, flash: COL.RED, edge: COL.PARCH,
+        num: sty(COL.PARCH, [COL.CH, 26], null, [COL.CH, 18]),
+        l: [sty(COL.PARCH, [COL.CH, 16], [COL.RED, 8], [COL.RED, 10]), sty(COL.RED, [COL.CH, 16], [COL.PARCH, 8], [COL.PARCH, 10]), sty(COL.PARCH, [COL.CH, 16], [COL.RED, 8], [COL.RED, 10])],
+        sp: [COL.PARCH, COL.RED] },
+  t3: { bg: COL.RED, burst: COL.PARCH, burstEdge: COL.CH, flash: COL.PARCH, edge: COL.CH,
+        num: sty(COL.RED, [COL.CH, 26], null, [COL.CH, 18]),
+        l: [sty(COL.PARCH, [COL.CH, 16], [COL.PARCH, 8], [COL.CH, 10]), sty(COL.CH, [COL.PARCH, 16], [COL.CH, 8], [COL.CH, 10]), sty(COL.PARCH, [COL.CH, 16], [COL.PARCH, 8], [COL.CH, 10])],
+        sp: [COL.PARCH, COL.CH] },
+};
+const SP = [[130, 300], [965, 1030], [105, 1060]];      // sparkle sites on the tip scenes
+
+function drawTip(sc, t) {
+  const L = LOOK[sc.id], S = sc.S;
+  ctx.fillStyle = L.bg; ctx.fillRect(-60, -60, W + 120, H + 120);
+  speedLines(540, 710, L.flash, t, sc.numeral_t);
+  burst(540, 710, 430, L.burst, L.burstEdge, t, sc.numeral_t, +sc.id.slice(1));
+  // bouncy numeral: pop, then a hop on every beat with squash on landing
+  const age = (t - sc.numeral_t) * FPS;
+  if (age > 0) {
+    const dt = t - sc.numeral_t, p = (dt % 0.5) / 0.5, hopping = dt >= 0.5;
+    const h = hopping ? 46 * 4 * p * (1 - p) : 0;
+    const sq = hopping ? Math.max(0, 1 - p / 0.2) : 0;
+    const sy = 1 - 0.16 * sq + (hopping ? 0.06 * Math.sin(Math.PI * p) : 0), sx = 1 / Math.sqrt(sy);
+    const pp = pop(age);
+    ctx.save(); ctx.translate(540, 890); ctx.translate(0, -h); ctx.rotate(-0.05 + 0.03 * Math.sin(t * 5));
+    ctx.scale(pp * sx, pp * sy); ctx.translate(0, -180);
+    glyph(sc.numeral, L.num, 640); ctx.restore();
+  }
+  sc.lines.forEach((ln, k) => {
+    const size = fitSize(ln, 168, 900);
+    charLine(ln, 540, 1210 + k * 168, size, L.l[k], t, sc.line_t[k], { seed: k * 11 + +sc.id.slice(1) });
+  });
+  sticker(ICON[sc.icon], 880, 318, 230, L.edge, t, sc.icon_t, 0.12);
+  sc.sparkle_t.forEach((st, k) => sparkle(SP[k][0], SP[k][1], k === 0 ? 62 : 48, L.sp[k % 2], L.edge, t, st));
+}
+
+function drawIntro(t) {
+  const I = C.intro;
+  ctx.fillStyle = COL.RED; ctx.fillRect(-60, -60, W + 120, H + 120);
+  speedLines(540, 900, COL.PARCH, t, I.title_t);
+  burst(540, 900, 520, COL.CH, COL.PARCH, t, I.title_t, 3);
+  charLine(I.title, 540, 900, 250, sty(COL.PARCH, [COL.CH, 24], [COL.PARCH, 8], [COL.CH, 18]), t, I.title_t, { seed: 5 });
+  const a = (t - I.micro_t) * FPS;
+  if (a > 0) {
+    ctx.save(); ctx.translate(540, 1210); ctx.scale(pop(a), pop(a)); ctx.font = '700 34px "Montserrat"'; ctx.letterSpacing = '8px';
+    ctx.fillStyle = COL.PARCH; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(I.micro, 3, 0); ctx.letterSpacing = '0px'; ctx.restore();
+  }
+  sparkle(150, 430, 64, COL.PARCH, COL.CH, t, I.sparkle_t[0]);
+  sparkle(940, 1330, 52, COL.CH, COL.PARCH, t, I.sparkle_t[1]);
+}
+
+function drawFinal(t) {
+  const F = C.final;
+  ctx.fillStyle = COL.PARCH; ctx.fillRect(-60, -60, W + 120, H + 120);
+  speedLines(540, 820, COL.RED, t, F.badge_t);
+  burst(540, 820, 520, COL.RED, COL.CH, t, F.badge_t, 9);
+  const a = (t - F.badge_t) * FPS;
+  if (a > 0) {
+    const s = pop(a), settle = clamp((a - 8) / 14), bob = 1 + 0.018 * Math.sin(t * 6) * settle;
+    ctx.save(); ctx.translate(540, 820); ctx.rotate(0.05 * Math.sin(t * 3.5) * settle + (1 - clamp(a / 8)) * -0.2); ctx.scale(s * bob, s * bob);
+    ctx.beginPath(); ctx.arc(0, 0, 372, 0, 7); ctx.fillStyle = COL.PARCH; ctx.fill(); ctx.strokeStyle = COL.CH; ctx.lineWidth = 22; ctx.stroke();
+    const bw = 580, bh = bw * badge.naturalHeight / badge.naturalWidth;
+    ctx.drawImage(badge, -bw / 2, -bh / 2, bw, bh);
+    ctx.restore();
+  }
+  charLine(F.url, 540, 1400, fitSize(F.url, 175, 900), sty(COL.CH, [COL.PARCH, 16], [COL.RED, 9], [COL.RED, 12]), t, F.url_t, { seed: 21 });
+  const sp = [[130, 420], [950, 1170], [170, 1230]];
+  F.sparkle_t.forEach((st, k) => sparkle(sp[k][0], sp[k][1], k === 0 ? 60 : 46, k % 2 ? COL.CH : COL.RED, k % 2 ? COL.PARCH : COL.CH, t, st));
+}
+
+function drawScene(i, t) {
+  const sc = C.scenes[i];
+  if (sc.id === 'intro') drawIntro(t); else if (sc.id === 'final') drawFinal(t); else drawTip(sc, t);
+}
+
+function render(t) {
+  // last scene whose slide has begun, plus the one before it
+  let cur = 0; C.scenes.forEach((s, i) => { if (t >= s.S - TRANS) cur = i; });
+  ctx.save();
+  // hero beat (tip 3): shake + flash on the hit
+  const hero = C.scenes[3], ha = (t - hero.S) * FPS;
+  if (ha >= 0 && ha < 10) ctx.translate(Math.sin(ha * 3.3) * 16 * (1 - ha / 10), Math.cos(ha * 2.7) * 12 * (1 - ha / 10));
+  if (cur === 0) drawScene(0, t);
+  else {
+    const sc = C.scenes[cur], p = io2(prog(t, sc.S - TRANS, sc.S));
+    ctx.save(); ctx.translate(0, -p * H * 0.22); drawScene(cur - 1, t); ctx.restore();
+    if (p > 0) {
+      const off = (1 - p) * (H + 50);
+      ctx.save(); ctx.beginPath(); ctx.moveTo(-100, H + 100);
+      for (let x = -100; x <= W + 100; x += 10) ctx.lineTo(x, off - 44 * Math.abs(Math.sin(x * Math.PI / 135)));
+      ctx.lineTo(W + 100, H + 100); ctx.closePath(); ctx.clip();
+      ctx.translate(0, off * (p < 1 ? 0.0 : 0)); drawScene(cur, t);
+      ctx.restore();
+      if (p < 1) {   // scalloped lip
+        const lip = { t1: COL.CH, t2: COL.PARCH, t3: COL.CH, final: COL.CH }[sc.id];
+        ctx.beginPath(); for (let x = -100; x <= W + 100; x += 10) { const y = off - 44 * Math.abs(Math.sin(x * Math.PI / 135)); x === -100 ? ctx.moveTo(x, y) : ctx.lineTo(x, y); }
+        ctx.strokeStyle = lip; ctx.lineWidth = 12; ctx.stroke();
+      }
+    }
+  }
+  // 1-frame parchment flash on the tip-3 hit
+  if (ha >= 0 && ha < 1.2) { ctx.fillStyle = COL.PARCH; ctx.fillRect(-60, -60, W + 120, H + 120); }
+  ctx.restore();
+}
+
+window.DEMO = { width: W, height: H, fps: FPS, duration: C.duration, motionBlur: { samples: 1, shutter: 0.5 } };
+(async () => {
+  await document.fonts.load(FONT(100), '3 TIPS KEEP A CONTENT CALENDAR TRACK EVERY SHOW KNOW YOUR INDUSTRY brmgdc.com 123');
+  await document.fonts.load('700 34px "Montserrat"', 'FROM BEAT REPUBLIC MEDIA GROUP');
+  await document.fonts.ready;
+  await badge.decode();
+  window.renderAt = async (t) => { render(t); };
+  render(0);
+  window.__ready = true;
+})().catch((e) => { console.error('init failed', e && e.stack || e); });
+</script>
+</body>
+</html>
