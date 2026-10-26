@@ -1,0 +1,428 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>BRMG · Show Day Wheel — Flat Vector (9:16, 15 s loop)</title>
+<link rel="stylesheet" href="/assets/fonts/fonts.css">
+<style>
+  html, body { margin: 0; padding: 0; background: #DFD7C7; overflow: hidden; }
+  canvas { display: block; width: 1080px; height: 1920px; }
+</style>
+</head>
+<body>
+<canvas id="c" width="1080" height="1920"></canvas>
+<script type="module">
+// BRMG "Show Day Wheel" — flat-vector motion graphics, vertical, 15 s seamless loop.
+// A 5-slot wheel turns 72 degrees every 6 beats (3 s), never cuts, and after five turns is back on slot one.
+// Every frame is a pure function of t, and the wheel / hand / scenes are periodic in 15 s, so frame 15.0 == frame 0.
+// Palette: Cover Red #ED2F2F (the hub and clock hand ONLY), Parchment #DFD7C7, Paper #F2F1ED, Charcoal #3D3935,
+// Kraft #B58975 (skin, conga) and two flat tints of Parchment / Charcoal. No gradients, no alpha.
+const W = 1080, H = 1920, FPS = 30, TAU = Math.PI * 2;
+const COL = { RED: '#ED2F2F', PARCH: '#DFD7C7', PARCH_D: '#CBBFA8', PAPER: '#F2F1ED', CH: '#3D3935', CH_L: '#5C5651', KRAFT: '#B58975' };
+const C = await (await fetch('/demos/brmg-wheel-flat/cues.json')).json();
+const LOOP = C.duration;
+
+// ------------------------------------------------------------------ maths / easing
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const lerp = (a, b, u) => a + (b - a) * u;
+const mod = (a, n) => ((a % n) + n) % n;
+const outC = u => 1 - Math.pow(1 - u, 3);
+const inC = u => u * u * u;
+const outQ = u => 1 - (1 - u) * (1 - u);
+const inQ = u => u * u;
+const ioC = u => (u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2);
+const inB = (u, s = 1.70158) => (s + 1) * u * u * u - s * u * u;
+function bezier(x1, y1, x2, y2) {
+  const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx, cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
+  const sx = t => ((ax * t + bx) * t + cx) * t, sy = t => ((ay * t + by) * t + cy) * t, dx = t => (3 * ax * t + 2 * bx) * t + cx;
+  return u => { if (u <= 0) return 0; if (u >= 1) return 1; let t = u; for (let i = 0; i < 12; i++) { const d = dx(t); if (Math.abs(d) < 1e-6) break; t = clamp(t - (sx(t) - u) / d); } return sy(t); };
+}
+const POP = bezier(0.34, 1.56, 0.64, 1);                         // the classic MG overshoot curve
+let XC = 0; { let lo = 0, hi = 1; for (let i = 0; i < 40; i++) { const m = (lo + hi) / 2; if (POP(m) < 1) lo = m; else hi = m; } XC = hi; }   // where POP first reaches 1
+// damped spring impulse: starts at 0, goes positive, rings out
+function kick(t, t0, f = 3.5, z = 0.3) { if (t <= t0) return 0; const w = TAU * f, tt = t - t0; return Math.exp(-z * w * tt) * Math.sin(w * Math.sqrt(1 - z * z) * tt); }
+const appear = (u, t0, d = 0.45) => POP(clamp((u - t0) / d));         // 0 -> 1.1 -> 1
+const vanish = (u, t0, d = 0.36) => 1 - inB(clamp((u - t0) / d));      // 1 -> 1.09 (anticipation) -> 0
+const life = (u, a, v, da = 0.45, dv = 0.36) => appear(u, a, da) * vanish(u, v, dv);
+// squash/stretch from the scale's own velocity: returns [sx, sy]
+function sqs(f, u) { const s = f(u), d = (f(u + 0.02) - f(u - 0.02)) / 0.04, q = clamp(d * 0.035, -0.22, 0.22); return [s * (1 - q), s * (1 + q)]; }
+
+// ------------------------------------------------------------------ canvas helpers
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d', { alpha: false });
+const fillRR = (x, y, w, h, r, c) => { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.fillStyle = c; ctx.fill(); };
+const strokeRR = (x, y, w, h, r, c, lw) => { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.strokeStyle = c; ctx.lineWidth = lw; ctx.stroke(); };
+const fillC = (x, y, r, c) => { ctx.beginPath(); ctx.arc(x, y, Math.max(0, r), 0, TAU); ctx.fillStyle = c; ctx.fill(); };
+const strokeC = (x, y, r, c, lw) => { ctx.beginPath(); ctx.arc(x, y, Math.max(0, r), 0, TAU); ctx.strokeStyle = c; ctx.lineWidth = lw; ctx.stroke(); };
+const fillE = (x, y, rx, ry, c) => { ctx.beginPath(); ctx.ellipse(x, y, Math.max(0, rx), Math.max(0, ry), 0, 0, TAU); ctx.fillStyle = c; ctx.fill(); };
+const line = (x1, y1, x2, y2, w, c) => { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.strokeStyle = c; ctx.lineWidth = w; ctx.lineCap = 'round'; ctx.stroke(); };
+const poly = (pts, c) => { ctx.beginPath(); pts.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]))); ctx.closePath(); ctx.fillStyle = c; ctx.fill(); };
+const rect = (x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(x, y, w, h); };
+const FONT = (s) => `${s}px "Bagel Fat One"`;
+function text(str, x, y, size, color, align = 'center', font = null, ls = 0) {
+  ctx.font = font || FONT(size); ctx.textAlign = align; ctx.textBaseline = 'middle'; ctx.fillStyle = color; ctx.letterSpacing = ls + 'px'; ctx.fillText(str, x, y); ctx.letterSpacing = '0px';
+}
+function withXf(x, y, sx, sy, rot, fn) { ctx.save(); ctx.translate(x, y); if (rot) ctx.rotate(rot); ctx.scale(sx, sy); fn(); ctx.restore(); }
+
+// ------------------------------------------------------------------ a bouncy geometric person (faces +x; face = -1 mirrors)
+function person(x, y, o) {
+  const { s = 1, body = COL.CH, skin = COL.KRAFT, cap = null, bob = 0, lean = 0, fa = 0.3, ba = -0.25, walk = 0, sx = 1, sy = 1, face = 1, eye = COL.CH, armLen = 70, blink = 0 } = o;
+  ctx.save(); ctx.translate(x, y); ctx.scale(face * s * sx, s * sy); ctx.rotate(lean);
+  const sh = [4, -104 - bob];
+  const arm = (a, front) => {
+    const ex = sh[0] + armLen * Math.sin(a), ey = sh[1] + armLen * Math.cos(a);
+    line(sh[0], sh[1], ex, ey, 19, body); fillC(ex, ey, 10.5, skin);
+  };
+  // legs
+  const l1 = Math.max(0, Math.sin(walk)) * 12, l2 = Math.max(0, -Math.sin(walk)) * 12;
+  fillRR(-27, -46 - l1, 23, 46, 11, body); fillRR(4, -46 - l2, 23, 46, 11, body);
+  arm(ba, false);
+  fillRR(-35, -124 - bob, 70, 88, 28, body);
+  // head
+  const hy = -158 - bob * 1.3;
+  fillC(5, hy, 31, skin);
+  if (cap) { ctx.beginPath(); ctx.arc(5, hy - 3, 32, Math.PI, TAU); ctx.closePath(); ctx.fillStyle = cap; ctx.fill(); fillRR(18, hy - 7, 30, 9, 4, cap); }
+  fillE(19, hy + 2, 4.2, 4.2 * (1 - 0.9 * blink), eye);
+  arm(fa, true);
+  ctx.restore();
+}
+const blinkAt = (t, ph = 0) => { const m = mod(t + ph, 3); return m < 0.12 ? Math.sin(m / 0.12 * Math.PI) : 0; };
+
+// ------------------------------------------------------------------ geometry of the wheel
+const CX = 540, CY = 960, RING = 450, PR = 245, RIM = 750, HUB = 140;
+const turnP = (tau) => POP((tau + XC * C.turn.dur) / C.turn.dur);   // reaches 1.0 exactly at tau = 0 (the landing), overshoots after
+function wheelAngle(t) {                                              // degrees clockwise; periodic: angle(t + 15) = angle(t) + 360
+  let s = 0;
+  for (let k = -1; k <= 6; k++) s += turnP(t - 3 * k);
+  return C.turn.deg * s - 2 * C.turn.deg;
+}
+const wrap180 = a => mod(a + 180, 360) - 180;
+
+// ------------------------------------------------------------------ the five scenes (local coords: 0,0 = porthole centre, floor y = 98, visible radius ~ 237)
+const FLOOR = 98;
+function hazard(y0, y1) {
+  ctx.save(); ctx.beginPath(); ctx.rect(-300, y0, 600, y1 - y0); ctx.clip(); rect(-300, y0, 600, y1 - y0, COL.CH);
+  for (let x = -330; x < 330; x += 34) poly([[x, y1], [x + 17, y1], [x + 17 + (y1 - y0), y0], [x + (y1 - y0), y0]], COL.PAPER);
+  ctx.restore();
+}
+
+function sceneLoadIn(u, t) {
+  rect(-300, -300, 600, 600, COL.PAPER);
+  fillC(78, -92, 92, COL.PARCH);                                    // flat sun-disc of the loading bay
+  fillRR(-210, -176, 170, 274, 0, COL.PARCH_D);                     // roller door
+  for (let y = -160; y < 90; y += 28) rect(-210, y, 170, 5, COL.PAPER);
+  rect(-300, FLOOR, 600, 200, COL.PARCH); hazard(FLOOR, FLOOR + 20);
+  // the road case
+  let cx;
+  if (u < 1.0) cx = lerp(-400, -6, outC(clamp((u + 0.25) / 1.25)));
+  else cx = -6 - 16 * Math.sin(Math.PI * clamp((u - 1.6) / 0.26)) + 470 * inC(clamp((u - 1.86) / 0.62));
+  const stretch = u < 1.0 ? 0.16 * Math.pow(1 - clamp((u + 0.25) / 1.25), 2) : (u > 1.86 ? 0.14 * clamp((u - 1.86) / 0.4) : 0);
+  const k = kick(u, 1.0, 4, 0.28);
+  const rollDx = cx;
+  const roadieX = cx - 132 - (u < 1.0 ? 26 * (1 - outC(clamp((u + 0.25) / 1.25))) : 0);
+  const walking = (u < 0.95 && u > -0.3) || u > 1.86;
+  const walkPh = rollDx / 20;
+  // speed lines on entry
+  if (u > -0.3 && u < 0.85) for (let i = 0; i < 3; i++) line(cx - 130 - i * 22, 10 + i * 34, cx - 190 - i * 40, 10 + i * 34, 7, COL.PARCH_D);
+  // dust puffs on the brake (hero at 1.0)
+  if (u > 1.0 && u < 1.45) { const p = (u - 1.0) / 0.45; for (let i = 0; i < 3; i++) fillC(cx - 90 - i * 24 - 30 * p, FLOOR - 6 - i * 10 - 30 * p, 14 * (1 - p) * (1 + i * 0.15), COL.PARCH_D); }
+  if (cx < 330) {
+    withXf(cx, FLOOR - 14, 1 + stretch + 0.14 * k, 1 - 0.1 * stretch - 0.14 * k, 0, () => {
+      fillC(-48, 0, 14, COL.CH); fillC(48, 0, 14, COL.CH);
+      for (const wx of [-48, 48]) { fillC(wx, 0, 6, COL.PAPER); const a = rollDx / 14; line(wx, 0, wx + 6 * Math.cos(a), 6 * Math.sin(a), 3, COL.CH); }
+      fillRR(-82, -128, 164, 118, 14, COL.CH);
+      rect(-66, -128, 12, 118, COL.PAPER); rect(54, -128, 12, 118, COL.PAPER);
+      for (const [px, py] of [[-82, -128], [68, -128], [-82, -24], [68, -24]]) fillRR(px, py, 14, 14, 4, COL.PAPER);
+      strokeRR(-24, -150, 48, 24, 10, COL.PAPER, 8);              // handle
+      fillRR(-12, -62, 24, 14, 4, COL.PARCH);                     // latch
+      text('BRMG', 0, -84, 30, COL.PAPER);
+    });
+  }
+  if (roadieX > -380 && roadieX < 330) {
+    person(roadieX, FLOOR, { body: COL.CH, cap: COL.CH_L, walk: walking ? walkPh : 0, bob: walking ? Math.abs(Math.sin(walkPh)) * 7 : 2 + 2 * Math.sin(u * 6), fa: 1.35, ba: 1.1, lean: walking ? 0.1 : 0.03 + 0.06 * k, sx: 1 + 0.06 * k, sy: 1 - 0.06 * k, blink: blinkAt(t), armLen: 78 });
+  }
+}
+
+function sceneSoundCheck(u, t) {
+  rect(-300, -300, 600, 600, COL.CH);
+  for (let x = -280; x < 280; x += 70) rect(x, -300, 34, 400, COL.CH_L);        // curtain folds
+  rect(-300, FLOOR, 600, 200, COL.CH_L);
+  fillE(0, FLOOR + 6, 170, 22, COL.PARCH_D);                                     // light pool
+  // mic stand pops up
+  const sc = life(u, -0.05, 2.1, 0.55, 0.34);
+  const [msx, msy] = sqs(x => life(x, -0.05, 2.1, 0.55, 0.34), u);
+  if (sc > 0.002) withXf(70, FLOOR + 4, msx, msy, 0, () => {
+    fillE(0, 0, 50, 12, COL.PAPER);
+    rect(-5, -168, 10, 168, COL.PAPER);
+    const nod = 1 + 0.18 * kick(u, 1.0, 4, 0.3);
+    withXf(-4, -176, nod, nod, 0, () => { fillC(0, 0, 25, COL.PAPER); for (const gy of [-10, -3, 4, 11]) line(-16, gy, 16, gy, 3.5, COL.CH); fillRR(-12, 20, 24, 14, 5, COL.PARCH_D); });
+  });
+  // singer
+  const sxp = lerp(-330, -86, outC(clamp((u + 0.3) / 0.8)));
+  const ent = clamp((u + 0.3) / 0.8);
+  const exit = inC(clamp((u - 2.15) / 0.35));
+  const px = sxp - 420 * exit;
+  const hop = (ent < 1 ? Math.abs(Math.sin(ent * Math.PI * 2.5)) * 16 : 0) + 20 * Math.max(0, Math.sin(clamp((u - 2.15) / 0.2) * Math.PI)) * (u < 2.4 ? 1 : 0);
+  const lean = 0.2 * POP(clamp((u - 1.35) / 0.3)) * (1 - inC(clamp((u - 2.0) / 0.2)));
+  if (px > -330) person(px, FLOOR - hop, { body: COL.PAPER, cap: null, skin: COL.KRAFT, eye: COL.CH, walk: ent < 1 ? ent * 20 : 0, bob: ent < 1 ? 4 : 2 + 2 * Math.sin(u * 7), fa: 1.2 + 0.5 * kick(u, 1.5, 3, 0.35), ba: -0.3, lean, sx: 1, blink: blinkAt(t, 1), armLen: 66 });
+  // speech bubble "1, 2!"
+  const bs = life(u, 1.5, 2.15, 0.35, 0.28);
+  if (bs > 0.002) {
+    const [bx, by] = sqs(x => life(x, 1.5, 2.15, 0.35, 0.28), u);
+    withXf(-70, -126, bx, by, -0.05 + 0.03 * Math.sin(u * 22), () => {
+      fillRR(-62, -34, 124, 62, 26, COL.PAPER); poly([[-12, 26], [18, 26], [10, 48]], COL.PAPER);
+      text('1, 2!', 0, -2, 38, COL.CH);
+    });
+  }
+  // sound rings out of the mic
+  for (let i = 0; i < 3; i++) {
+    const p = clamp((u - 1.5 - 0.13 * i) / 0.6);
+    if (p > 0 && p < 1) { ctx.beginPath(); ctx.arc(66, -74, 34 + 100 * outC(p), -0.95, 0.95); ctx.strokeStyle = COL.PARCH; ctx.lineWidth = 11 * (1 - p) + 2; ctx.lineCap = 'round'; ctx.stroke(); }
+  }
+}
+
+function sceneDoors(u, t) {
+  rect(-300, -300, 600, 600, COL.PAPER);
+  fillRR(-206, -190, 330, 288, 0, COL.PARCH_D);                                  // facade
+  // double doors swing open (elastic), snap shut before the wheel turns away
+  const o = POP(clamp((u + 0.1) / 0.6)) * (1 - inC(clamp((u - 2.15) / 0.3)));
+  const dw = 56, dh = 210, dx0 = -170, dy0 = -112;
+  fillRR(dx0 - 8, dy0 - 8, dw * 2 + 16, dh + 8, 8, COL.CH);                      // frame
+  rect(dx0, dy0, dw * 2, dh, COL.PAPER);                                         // lit interior
+  if (o > 0.3) for (let i = 0; i < 3; i++) { fillC(dx0 + 34 + i * 30, dy0 + dh - 22 - Math.abs(Math.sin(u * 6 + i * 1.7)) * 8, 14, COL.CH); fillRR(dx0 + 20 + i * 30, dy0 + dh - 8, 28, 8, 0, COL.CH); }
+  const sx = clamp(1 - 0.86 * o, 0.07, 1.1);
+  fillRR(dx0, dy0, dw * sx, dh, 3, COL.CH_L); fillRR(dx0 + dw * 2 - dw * sx, dy0, dw * sx, dh, 3, COL.CH_L);
+  fillC(dx0 + dw * sx - 8, dy0 + dh * 0.55, 5, COL.PAPER); fillC(dx0 + dw * 2 - dw * sx + 8, dy0 + dh * 0.55, 5, COL.PAPER);
+  rect(-300, FLOOR, 600, 200, COL.PARCH); hazard(FLOOR, FLOOR + 18);
+  // scanner kiosk
+  const f = x => life(x, 0.0, 2.1, 0.5, 0.34);
+  const [ksx, ksy] = sqs(f, u);
+  const kx = 112;
+  if (f(u) > 0.002) withXf(kx, FLOOR, ksx, ksy, 0, () => {
+    fillRR(-48, -96, 96, 96, 14, COL.CH);                                        // pillar
+    fillRR(-36, -88, 72, 46, 8, COL.CH_L);                                       // screen bezel
+    const ok = u >= 1.5;
+    rect(-30, -82, 60, 34, COL.PAPER);
+    if (ok) { const p = POP(clamp((u - 1.5) / 0.3)); withXf(0, -65, p, p, 0, () => { ctx.beginPath(); ctx.moveTo(-14, 0); ctx.lineTo(-4, 11); ctx.lineTo(15, -12); ctx.strokeStyle = COL.CH; ctx.lineWidth = 8; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.stroke(); }); }
+    else for (let i = 0; i < 3; i++) rect(-22, -76 + i * 10, 44 - i * 10, 5, COL.PARCH_D);
+    // tray, post and arm
+    fillRR(-52, -106, 104, 12, 5, COL.CH_L);
+    rect(40, -270, 12, 166, COL.CH_L); fillRR(-52, -272, 104, 14, 6, COL.CH_L);
+  });
+  // ticket flies in from the left to the tray
+  const tp = clamp((u - 0.4) / 0.5), tOut = inC(clamp((u - 2.0) / 0.4));
+  const tx = lerp(40, kx, outC(tp)) + 420 * tOut, ty = lerp(-70, FLOOR - 106 - 22, outC(tp)) - 46 * Math.sin(Math.PI * tp), tr = lerp(-0.5, 0, outC(tp));
+  if (u > 0.4 && tx < 340) withXf(tx, ty, 1, 1, tr, () => {
+    ctx.beginPath(); ctx.roundRect(-52, -22, 104, 44, 6); ctx.fillStyle = COL.PAPER; ctx.fill();
+    fillC(-52, 0, 8, COL.PARCH_D); fillC(52, 0, 8, COL.PARCH_D);
+    for (let y = -16; y < 18; y += 8) rect(-26, y, 3, 4, COL.CH_L);
+    rect(-46, -16, 14, 32, COL.CH_L); text('★', -39, 0, 20, COL.PAPER, 'center', '700 20px "Montserrat"');
+    for (let i = 0; i < 3; i++) rect(-14 + i * 0, -12 + i * 12, 54 - i * 12, 5, COL.CH);
+    if (u >= 1.5) { const p = POP(clamp((u - 1.5) / 0.3)); withXf(30, -1, 0.95 * p, 0.95 * p, 0, () => { ctx.beginPath(); ctx.moveTo(-17, 0); ctx.lineTo(-5, 13); ctx.lineTo(19, -15); ctx.strokeStyle = COL.CH; ctx.lineWidth = 11; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.stroke(); }); }
+  });
+  // stamp head (rod hangs from the arm; contact at the ticket top)
+  let sy;
+  if (u < 1.2) sy = -100; else if (u < 1.36) sy = lerp(-100, -118, outQ((u - 1.2) / 0.16)); else if (u < 1.5) sy = lerp(-118, -52, inQ((u - 1.36) / 0.14));
+  else sy = lerp(-52, -100, outC(clamp((u - 1.5) / 0.3)));
+  const kvis = f(u);
+  if (kvis > 0.3) { const sq = 1 - 0.2 * Math.max(0, kick(u, 1.5, 4, 0.3)); withXf(kx, sy, 1 + (1 - sq) * 0.6, sq, 0, () => { rect(-4, -160 - sy, 8, 108 + sy, COL.CH_L); fillRR(-30, -30, 60, 30, 8, COL.CH); fillRR(-10, -52, 20, 24, 6, COL.CH_L); }); }
+  // patron with the ticket hand-off, then a hop of joy
+  const pe = clamp((u + 0.3) / 0.7), pxx = lerp(-330, -10, outC(pe)) - 440 * inC(clamp((u - 2.15) / 0.35));
+  const joy = POP(clamp((u - 1.5) / 0.3)) * (1 - inC(clamp((u - 2.05) / 0.2)));
+  const hop = 22 * Math.abs(Math.sin(clamp((u - 1.5) / 0.55) * Math.PI)) * (u > 1.5 && u < 2.05 ? 1 : 0) + (pe < 1 ? Math.abs(Math.sin(pe * Math.PI * 2)) * 12 : 0);
+  if (pxx > -330) person(pxx, FLOOR - hop, { body: COL.CH, cap: COL.CH_L, walk: pe < 1 ? pe * 18 : 0, bob: 2 + 2 * Math.sin(u * 6), fa: lerp(0.9, 2.5, joy), ba: lerp(-0.3, -2.3, joy), blink: blinkAt(t, 2), armLen: 66 });
+}
+
+function sceneShow(u, t) {
+  rect(-300, -300, 600, 600, COL.CH);
+  rect(-300, FLOOR, 600, 200, COL.CH_L);
+  const hits = [1.0, 1.5, 1.75, 2.0];
+  // truss and lamps
+  rect(-220, -178, 440, 12, COL.CH_L);
+  for (let x = -210; x < 220; x += 30) line(x, -166, x + 15, -150, 4, COL.CH_L);
+  const lit = life(u, 0.1, 2.3, 0.5, 0.3);
+  const flash = hits.reduce((a, h) => Math.max(a, (u > h && u < h + 0.09) ? 1 : 0), 0);
+  for (const lx of [-110, 0, 110]) {
+    // light cone (elastic open from the lamp)
+    if (lit > 0.002) withXf(lx, -150, 1, lit, 0, () => { poly([[-14, 0], [14, 0], [78, FLOOR + 150 - 0], [-78, FLOOR + 150]], flash ? COL.PARCH : COL.PARCH_D); });
+    fillRR(lx - 16, -158, 32, 24, 7, lit > 0.2 ? COL.PAPER : COL.CH_L);
+  }
+  rect(-300, FLOOR, 600, 200, COL.CH_L);
+  fillE(18, FLOOR + 4, 130, 20, lit > 0.2 ? (flash ? COL.PARCH : COL.PARCH_D) : COL.CH);
+  // conga
+  const f = x => life(x, -0.05, 2.1, 0.5, 0.34);
+  const [csx, csy] = sqs(f, u);
+  let kk = 0; for (const h of hits) kk += kick(u, h, 4.5, 0.32) * (h === 2.0 ? 0.5 : 1);
+  if (f(u) > 0.002) withXf(20, FLOOR, csx * (1 + 0.1 * kk), csy * (1 - 0.1 * kk), 0, () => {
+    ctx.beginPath(); ctx.moveTo(-34, -132); ctx.quadraticCurveTo(-48, -40, -30, 0); ctx.lineTo(30, 0); ctx.quadraticCurveTo(48, -40, 34, -132); ctx.closePath(); ctx.fillStyle = COL.KRAFT; ctx.fill();
+    for (const [y0, hw] of [[-96, 44], [-52, 41], [-14, 34]]) { ctx.beginPath(); ctx.moveTo(-hw, y0); ctx.quadraticCurveTo(0, y0 + 10, hw, y0); ctx.strokeStyle = COL.CH; ctx.lineWidth = 8; ctx.stroke(); }
+    fillE(0, -132, 40, 12, COL.PAPER); ctx.beginPath(); ctx.ellipse(0, -132, 40, 12, 0, 0, TAU); ctx.strokeStyle = COL.CH; ctx.lineWidth = 6; ctx.stroke();
+    fillRR(-38, -4, 76, 8, 4, COL.CH);
+  });
+  // ripple + burst on each hit
+  for (const h of hits) {
+    const p = clamp((u - h) / 0.5);
+    if (p > 0 && p < 1 && f(u) > 0.3) {
+      ctx.beginPath(); ctx.ellipse(20, FLOOR - 132, 40 + 70 * outC(p), 12 + 24 * outC(p), 0, 0, TAU); ctx.strokeStyle = COL.PARCH; ctx.lineWidth = 8 * (1 - p) + 1; ctx.stroke();
+      if (p < 0.4 && h < 2.0) for (let i = 0; i < 7; i++) { const a = -Math.PI * (0.1 + 0.8 * i / 6), r0 = 36 + 30 * p, r1 = r0 + 22 * (1 - p / 0.4); line(20 + Math.cos(a) * r0 * 1.2, FLOOR - 140 + Math.sin(a) * r0, 20 + Math.cos(a) * r1 * 1.5, FLOOR - 140 + Math.sin(a) * r1 * 1.25, 6, COL.PAPER); }
+    }
+  }
+  // the player slaps the head
+  const pe = clamp((u + 0.3) / 0.8), pExit = inC(clamp((u - 2.15) / 0.35));
+  const pxp = lerp(-320, -84, outC(pe)) - 400 * pExit;
+  function arm(u0) {
+    let a = 0.3;
+    for (const h of hits) {
+      if (u0 >= h - 0.3 && u0 < h + 0.34) {
+        if (u0 < h - 0.14) a = lerp(0.5, 2.1, outQ((u0 - (h - 0.3)) / 0.16));
+        else if (u0 < h) a = lerp(2.1, 0.62, inQ((u0 - (h - 0.14)) / 0.14));
+        else a = lerp(0.62, 1.1, outC((u0 - h) / 0.34));
+        return a;
+      }
+    }
+    return a;
+  }
+  const bounce = Math.abs(Math.sin(u * Math.PI * 4)) * 4 * (u > 0.7 && u < 2.2 ? 1 : 0);
+  if (pxp > -330) person(pxp, FLOOR - (pe < 1 ? Math.abs(Math.sin(pe * Math.PI * 2.5)) * 14 : 0), { body: COL.PAPER, cap: null, skin: COL.KRAFT, walk: pe < 1 ? pe * 18 : 0, bob: bounce, fa: u > 0.7 ? arm(u) : 0.3, ba: u > 0.7 ? arm(u + 0.12) * 0.7 - 0.2 : -0.3, lean: 0.05 + 0.1 * kk, blink: blinkAt(t, 0.5), armLen: 92 });
+}
+
+function sceneSettlement(u, t) {
+  rect(-300, -300, 600, 600, COL.PARCH_D);
+  fillC(-86, -60, 120, COL.PARCH);                                    // flat backdrop disc
+  rect(-300, FLOOR, 600, 200, COL.PAPER); hazard(FLOOR, FLOOR + 16);
+  // printer
+  const f = x => life(x, 0.0, 2.15, 0.5, 0.3);
+  const [psx, psy] = sqs(f, u);
+  const feed = clamp((u - 0.35) / 1.1);
+  const stepN = 9, q = (Math.floor(feed * stepN) + outC(clamp(feed * stepN - Math.floor(feed * stepN)) * 1.6)) / stepN;
+  const len = 232 * clamp(q, 0, 1) * (u < 1.5 ? 1 : 1);
+  const shake = (u > 0.35 && u < 1.45) ? Math.sin(u * 90) * 1.6 : 0;
+  const px0 = 52, py0 = -122;
+  if (f(u) > 0.002) withXf(px0 + shake, py0, psx, psy, 0, () => {
+    // receipt (clipped to the printed length, hangs under the slot)
+    ctx.save(); ctx.beginPath(); ctx.rect(-70, 30, 140, len + 1); ctx.clip();
+    ctx.beginPath(); ctx.roundRect(-56, 24, 112, 252, 3); ctx.fillStyle = COL.PAPER; ctx.fill();
+    rect(-40, 44, 80, 12, COL.CH);
+    for (let i = 0; i < 7; i++) { rect(-40, 74 + i * 22, 30 + (i * 17) % 22, 8, COL.CH); rect(24, 74 + i * 22, 16, 8, COL.CH_L); }
+    for (let x = -40; x < 40; x += 7) rect(x, 236, (x % 14 === 0 || x % 21 === 0) ? 4 : 2, 28, COL.CH);
+    ctx.restore();
+    // zig-zag tear edge on the moving end
+    if (len > 20 && len < 230) { ctx.beginPath(); for (let x = -56; x <= 56; x += 8) ctx.lineTo(x, 30 + len + ((x / 8) % 2 ? 0 : 7)); ctx.lineTo(56, 30 + len - 2); ctx.lineTo(-56, 30 + len - 2); ctx.closePath(); ctx.fillStyle = COL.PAPER; ctx.fill(); }
+    // printer body on top
+    fillRR(-104, -2, 208, 80, 16, COL.CH);
+    rect(-84, 22, 168, 8, COL.PARCH_D); fillC(-80, 52, 7, COL.PAPER); fillRR(-58, 46, 30, 12, 6, COL.CH_L);
+    // stamp imprint
+    if (u >= 1.75) { const p = POP(clamp((u - 1.75) / 0.3)); withXf(-6, 168, p, p, -0.14, () => { strokeRR(-62, -24, 124, 48, 10, COL.CH, 6); text('SETTLED', 0, 2, 22, COL.CH); }); }
+  });
+  // the stamp coming down
+  let sy;
+  if (u < 1.3) sy = -330; else if (u < 1.5) sy = lerp(-330, -150, outC((u - 1.3) / 0.2)); else if (u < 1.62) sy = lerp(-150, -176, outQ((u - 1.5) / 0.12));
+  else if (u < 1.75) sy = lerp(-176, -2, inQ((u - 1.62) / 0.13)); else sy = lerp(-2, -330, inC(clamp((u - 1.82) / 0.36))) + 0;
+  if (u >= 1.3 && u < 2.25) {
+    const sq = 1 - 0.16 * Math.max(0, kick(u, 1.75, 5, 0.3));
+    withXf(px0 - 6, py0 + 168 + sy + 40, 1 + (1 - sq) * 0.5, sq, -0.14, () => { fillRR(-34, -2, 68, 20, 8, COL.CH); fillRR(-16, -60, 32, 62, 12, COL.CH_L); fillC(0, -66, 16, COL.CH); });
+  }
+  // the accountant, reading the receipt then hopping at the stamp
+  const pe = clamp((u + 0.3) / 0.8);
+  const px = lerp(-330, -128, outC(pe)) - 420 * inC(clamp((u - 2.15) / 0.35));
+  const hop = u > 1.75 && u < 2.25 ? 20 * Math.abs(Math.sin(clamp((u - 1.75) / 0.5) * Math.PI)) : (pe < 1 ? Math.abs(Math.sin(pe * Math.PI * 2.5)) * 12 : 0);
+  const joy = POP(clamp((u - 1.75) / 0.3)) * (1 - inC(clamp((u - 2.1) / 0.15)));
+  if (px > -330) person(px, FLOOR - hop, { body: COL.CH, cap: null, skin: COL.KRAFT, walk: pe < 1 ? pe * 18 : 0, bob: 2 + 2 * Math.sin(u * 6), fa: lerp(0.4, 2.4, joy), ba: lerp(-0.3, -2.2, joy), blink: blinkAt(t, 1.5), armLen: 66 });
+}
+
+const SCENES = [sceneLoadIn, sceneSoundCheck, sceneDoors, sceneShow, sceneSettlement];
+
+// ------------------------------------------------------------------ the wheel
+function drawPorthole(i, x, y, sc, u, t) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(sc, sc);
+  fillC(12, 16, PR + 10, '#BFB39B');                                 // hard offset shadow (flat)
+  fillC(0, 0, PR + 12, COL.CH);
+  ctx.save(); ctx.beginPath(); ctx.arc(0, 0, PR - 4, 0, TAU); ctx.clip();
+  ctx.translate(0, 22); ctx.scale(1.26, 1.26);
+  SCENES[i](u, t);
+  ctx.restore();
+  ctx.restore();
+}
+function drawLabel(i, x, y, sc, landAge) {
+  const lab = C.slots[i].label;
+  ctx.font = FONT(50);
+  const tw = ctx.measureText(lab).width, w = tw + 64, h = 84;
+  const pop = landAge >= 0 ? 1 + 0.16 * kick(landAge, 0, 4, 0.28) : 1;
+  ctx.save(); ctx.translate(x, y + PR * sc - 22); ctx.scale(sc * pop, sc * pop);
+  fillRR(-w / 2 + 6, -h / 2 + 8, w, h, 42, '#BFB39B');
+  fillRR(-w / 2, -h / 2, w, h, 42, COL.CH);
+  text(lab, 0, 3, 50, COL.PAPER);
+  ctx.restore();
+}
+
+function render(t) {
+  t = mod(t, LOOP);
+  ctx.save();
+  rect(0, 0, W, H, COL.PARCH);
+  const th = wheelAngle(t);
+  // track groove and outer rim (rotate with the wheel)
+  strokeC(CX, CY, RING, COL.PARCH_D, 44);
+  ctx.save(); ctx.translate(CX, CY); ctx.rotate(th * Math.PI / 180);
+  strokeC(0, 0, RIM, COL.CH, 24); strokeC(0, 0, RIM - 36, COL.CH, 6);
+  for (let i = 0; i < 60; i++) { const a = i / 60 * TAU, big = i % 12 === 0, r0 = RIM - 40, r1 = RIM - 40 - (big ? 34 : 16); line(Math.sin(a) * r0, -Math.cos(a) * r0, Math.sin(a) * r1, -Math.cos(a) * r1, big ? 10 : 5, COL.CH); }
+  ctx.restore();
+  // spokes
+  const slots = [];
+  for (let i = 0; i < 5; i++) {
+    const phi = th - 72 * i, a = phi * Math.PI / 180;
+    const x = CX + RING * Math.sin(a), y = CY - RING * Math.cos(a);
+    const w = clamp(1 - Math.abs(wrap180(phi)) / 72);
+    slots.push({ i, phi, x, y, w });
+    line(CX + Math.sin(a) * HUB * 0.8, CY - Math.cos(a) * HUB * 0.8, x, y, 18, COL.CH);
+  }
+  // portholes, active one last
+  slots.sort((a, b) => a.w - b.w);
+  for (const s of slots) {
+    const L = C.slots[s.i].land;
+    const u = mod(t - L + 0.5, LOOP) - 0.5;
+    const sc = 0.84 + 0.16 * (s.w * s.w * (3 - 2 * s.w)) + 0.035 * kick(t - L < -0.5 ? t - L + LOOP : t - L, 0, 3.6, 0.3);
+    s.sc = sc; s.u = u;
+    drawPorthole(s.i, s.x, s.y, sc, u, t);
+  }
+  for (const s of slots) { const age = mod(t - C.slots[s.i].land + 0.5, LOOP) - 0.5; drawLabel(s.i, s.x, s.y, s.sc, age >= 0 ? age : -1); }
+  // hub: Cover Red, the only red, with a stepping clock hand (60 ticks per loop)
+  fillC(CX + 8, CY + 10, HUB + 12, '#BFB39B');
+  fillC(CX, CY, HUB + 14, COL.CH);
+  fillC(CX, CY, HUB - 2, COL.RED);
+  for (let i = 0; i < 60; i++) { const a = i / 60 * TAU, big = i % 5 === 0, r0 = HUB - 12, r1 = HUB - (big ? 40 : 28); line(CX + Math.sin(a) * r0, CY - Math.cos(a) * r0, CX + Math.sin(a) * r1, CY - Math.cos(a) * r1, big ? 6 : 3.5, COL.PAPER); }
+  const tk = C.tick, n = Math.floor(t / tk + 1e-9), fr = (t - n * tk) / 0.09;
+  const handA = (n + POP(clamp(fr))) * 6 * Math.PI / 180;
+  ctx.save(); ctx.translate(CX, CY); ctx.rotate(handA);
+  fillRR(-8, -92, 16, 120, 8, COL.PAPER); poly([[-8, -88], [8, -88], [0, -112]], COL.PAPER); fillC(0, 0, 17, COL.PAPER); fillC(0, 0, 7, COL.CH);
+  ctx.restore();
+  // rim tag: BEAT REPUBLIC MEDIA GROUP + brmgdc.com (pops in after the 12 s landing, tucks away as the last turn starts)
+  const T = C.tag;
+  const tagS = POP(clamp((t - T.tag_in) / 0.4)) * (1 - inB(clamp((t - T.tag_out) / 0.34)));
+  const urlS = POP(clamp((t - T.url_in) / 0.4)) * (1 - inB(clamp((t - T.url_out) / 0.34)));
+  if (tagS > 0.003) withXf(CX, CY + RIM, tagS, tagS, 0, () => {
+    ctx.font = '700 33px "Montserrat"'; ctx.letterSpacing = '3px';
+    const label = 'BEAT REPUBLIC MEDIA GROUP', w = ctx.measureText(label).width + 72;
+    ctx.letterSpacing = '0px';
+    fillRR(-w / 2 + 6, -40 + 8, w, 80, 40, '#BFB39B'); fillRR(-w / 2, -40, w, 80, 40, COL.CH);
+    text(label, 0, 2, 33, COL.PAPER, 'center', '700 33px "Montserrat"', 3);
+  });
+  if (urlS > 0.003) withXf(CX, 1810, urlS, urlS, 0, () => {
+    ctx.font = FONT(56); const w = ctx.measureText('brmgdc.com').width + 76;
+    fillRR(-w / 2 + 6, -42 + 8, w, 84, 42, '#BFB39B'); fillRR(-w / 2, -42, w, 84, 42, COL.PAPER); strokeRR(-w / 2, -42, w, 84, 42, COL.CH, 7);
+    text('brmgdc.com', 0, 3, 56, COL.CH);
+  });
+  ctx.restore();
+}
+
+window.DEMO = { width: W, height: H, fps: FPS, duration: C.duration, motionBlur: { samples: 1, shutter: 0.5 } };
+(async () => {
+  await document.fonts.load(FONT(60), 'LOAD-IN SOUND CHECK DOORS SHOW SETTLEMENT BRMG SETTLED 1, 2! brmgdc.com');
+  await document.fonts.load('700 33px "Montserrat"', 'BEAT REPUBLIC MEDIA GROUP ★');
+  await document.fonts.ready;
+  window.renderAt = async (t) => { render(t); };
+  render(0);
+  window.__ready = true;
+})().catch((e) => { console.error('init failed', e && e.stack || e); });
+</script>
+</body>
+</html>

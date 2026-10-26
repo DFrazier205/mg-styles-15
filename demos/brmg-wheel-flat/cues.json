@@ -1,0 +1,17 @@
+{
+ "fps": 30,
+ "duration": 15.0,
+ "bpm": 120,
+ "comment": "120 bpm: beat 0.5 s, bar 2 s. The wheel turns 72 degrees every 6 beats (3 s) and lands on t = 0, 3, 6, 9, 12 (the 15 s landing is the 0 s landing: the film loops with no seam). Each landing is a snare. Hi-hat = the clock tick (every 0.25 s, 60 per loop; the hand steps 6 degrees on each). Kick on every beat, clap on beats 2 and 4. One pitched blip per scene at its hero moment (land + hero).",
+ "turn": { "dur": 1.0, "deg": 72, "landings": [0.0, 3.0, 6.0, 9.0, 12.0] },
+ "tick": 0.25,
+ "slots": [
+  { "id": "loadin",     "label": "LOAD-IN",     "land": 0.0,  "hero": 1.0, "note": "C5" },
+  { "id": "soundcheck", "label": "SOUND CHECK", "land": 3.0,  "hero": 1.5, "note": "E5" },
+  { "id": "doors",      "label": "DOORS",       "land": 6.0,  "hero": 1.5, "note": "G5" },
+  { "id": "show",       "label": "SHOW",        "land": 9.0,  "hero": 1.0, "note": "A5" },
+  { "id": "settlement", "label": "SETTLEMENT",  "land": 12.0, "hero": 1.75, "note": "C6" }
+ ],
+ "tag": { "tag_in": 12.25, "url_in": 12.5, "url_out": 14.4, "tag_out": 14.45 },
+ "end": 15.0
+}
